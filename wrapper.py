@@ -61,8 +61,8 @@ def daidefy_location(loc: str) -> str:
     """Converts DipNet-style location to DAIDE-style location
 
     E.g.
-    BUL/EC --> BUL ECS
-    STP/SC --> STP SCS
+    BUL/EC --> ( BUL ECS )
+    STP/SC --> ( STP SCS )
     ENG    --> ECH
     PAR    --> PAR
 
@@ -185,12 +185,16 @@ def dipnet_order(order: str) -> str:
     raise ValueError(f"Invalid order: {order}")
 
 
-def daidefy_order(game: Game, power: str, order: str, via_locs: list = None, dsb: bool = False) -> str:
+def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False) -> str:
     splitted = order.split(' ')
     unit_type, loc, *rest = splitted
+    #loc = loc if '/' not in loc else loc.split('/')[0]
     daide_unit_type = 'FLT' if unit_type == 'F' else 'AMY'
     daide_loc = daidefy_location(loc)
-    primary_unit_power = get_unit_power(game, daide_loc)
+    if ' ' in daide_loc:
+        primary_unit_power = get_unit_power(game, daide_loc.split(' ')[1])
+    else:
+        primary_unit_power = get_unit_power(game, daide_loc)
     assert primary_unit_power == power, f"Power mismatch: {power} != {primary_unit_power}"
 
     daide_primary_unit = ' '.join(['(', primary_unit_power, daide_unit_type, daide_loc, ')'])
@@ -236,8 +240,13 @@ def daidefy_order(game: Game, power: str, order: str, via_locs: list = None, dsb
             # SUP/CVY
             assert len(rest) > 3, f"SUP/CVY order has less than 4 elements: {order}"
             secondary_loc = rest[2]
-            secondary_power = get_unit_power(game, secondary_loc)
-            secondary_move = daidefy_order(game, secondary_power, ' '.join(rest[1:]), via_locs=None)
+
+            if '/' in secondary_loc:
+                secondary_power = get_unit_power(game, secondary_loc.split('/')[0])
+            else:
+                secondary_power = get_unit_power(game, secondary_loc)
+
+            secondary_move = daidefy_order(game, secondary_power, ' '.join(rest[1:]))
             if 'S' in rest:
                 result = daide_primary_unit + ' SUP ' + secondary_move
 
@@ -255,37 +264,6 @@ def daidefy_order(game: Game, power: str, order: str, via_locs: list = None, dsb
             # HLD
             assert len(rest) == 1, f"HLD order has more than 1 element: {order}"
             return daide_primary_unit + ' HLD'
-
-
-
-def dip_order_to_daide(power, order):
-    print('dip_order_to_daide:', power, order)
-    splitted = order.split(' ')
-
-    assert len(splitted) < 8
-
-    unit = splitted[:2]
-    rest = splitted[2:]
-
-    # U LOC -> ( POW UNT LOC )
-    #daide = unit_to_daide(power, unit)
-    daide = daidefy_unit(unit)
-
-    if len(rest) == 0 or (len(rest) == 1 and rest[0] == 'H'):
-        daide += ' HLD'
-        return daide
-    elif len(rest) == 2 and rest[0] == '-':
-        daide += ' MTO ' + rest[1]
-        return daide
-    elif rest[0] == 'S':
-        supported_power = get_unit_power(game, rest[2])
-        daide += ' SUP ' + dip_order_to_daide(supported_power, ' '.join(rest[1:]))
-        return daide
-    elif rest[0] == 'C':
-        convoyed_power = get_unit_power(game, rest[2])
-        daide += ' CVY ' + unit_to_daide(convoyed_power, rest[1:3])
-        daide += ' CTO ' + rest[4]
-        return daide
 
 def hex_to_decimal(hex):
     return int(hex, 16)
@@ -326,7 +304,7 @@ def main():
         year_hex = decimal_to_hex(int(year))
 
         print("Converting:", power_orders)
-        daide_orders = [dip_order_to_daide(self_power, order) for order in power_orders]
+        daide_orders = [daidefy_order(game, self_power, order) for order in power_orders]
         print("Converted:", daide_orders)
 
         submit_orders = convert_to_hex(['SUB', '(', season, year_hex, ')'])
@@ -386,16 +364,6 @@ def main():
             sock.sendall(msg)
 
             return_msg_type, return_data = read_data(sock)
-
-            #print(return_msg_type)
-            #print(' '.join(convert(return_data)))
-
-        # MAXIMUM RECEIVED DATA SIZE = 65535
-            #data = sock.recv(65535)
-            #hex_data = data.hex()
-
-        # wait for a HLO message
-        # get power from HLO
 
         while True:
             return_msg_type, return_data = read_data(sock)

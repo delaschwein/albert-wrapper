@@ -2,49 +2,46 @@ from wrapper import daidefy_order, dipnet_order
 from diplomacy import Game
 
 def test_daidefy_order():
-    power = "ENG"
+    power = "RUS"
     game = Game()
 
-
-
-    """hlds = {
-        "A LVP H": "( ENG AMY LVP ) HLD",
-        "F EDI H": "( ENG FLT EDI ) HLD",
+    hlds = {
+        "A MOS H": "( RUS AMY MOS ) HLD",
+        "F STP/SC H": "( RUS FLT ( STP SCS ) ) HLD",
     }
 
     for order, expected in hlds.items():
-        result = daidefy_order(power, order)
+        result = daidefy_order(game, power, order)
         assert result == expected
 
     mtos = {
-        "A LVP - YOR": "( ENG AMY LVP ) MTO YOR",
-        "F EDI - NTH": "( ENG FLT EDI ) MTO NTH",
+        "A MOS - LVN": "( RUS AMY MOS ) MTO LVN",
+        "F STP/SC - FIN": "( RUS FLT ( STP SCS ) ) MTO FIN",
     }
 
     for order, expected in mtos.items():
-        result = daidefy_order(power, order)
+        result = daidefy_order(game, power, order)
         assert result == expected
 
     sup_hld = {
-        "F EDI S A LVP H": "( ENG FLT EDI ) SUP ( ENG AMY LVP )",
-        "A LVP S F EDI H": "( ENG AMY LVP ) SUP ( ENG FLT EDI )",
+        "F STP/SC S A MOS H": "( RUS FLT ( STP SCS ) ) SUP ( RUS AMY MOS )",
+        "A MOS S F STP/SC H": "( RUS AMY MOS ) SUP ( RUS FLT ( STP SCS ) )",
     }
 
     for order, expected in sup_hld.items():
-        result = daidefy_order(power, order)
-        assert result == expected
-
+        result = daidefy_order(game, power, order)
+        assert result == expected, f"Expected: {expected}, Got: {result}"
 
     sup_mto = {
-        "F EDI S A LVP - YOR": "( ENG FLT EDI ) SUP ( ENG AMY LVP ) MTO YOR",
-        "F LON S A LVP - WAL": "( ENG FLT LON ) SUP ( ENG AMY LVP ) MTO WAL",
+        "F STP/SC S A MOS - LVN": "( RUS FLT ( STP SCS ) ) SUP ( RUS AMY MOS ) MTO LVN",
+        #"F LON S A LVP - WAL": "( ENG FLT LON ) SUP ( ENG AMY LVP ) MTO WAL",
     }
 
     for order, expected in sup_mto.items():
-        result = daidefy_order(power, order)
-        print(result, expected)
+        result = daidefy_order(game, power, order)
         assert result == expected
 
+    power = "ENG"
 
     cvys = {
         "F NTH C A YOR - HOL": "( ENG FLT NTH ) CVY ( ENG AMY YOR ) CTO HOL",
@@ -56,10 +53,9 @@ def test_daidefy_order():
 
     for order, expected in cvys.items():
         result = daidefy_order(game, power, order)
-        print(result, expected)
         assert result == expected
 
-
+    game = Game()
     game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
 
     game.process()
@@ -73,6 +69,7 @@ def test_daidefy_order():
         result = daidefy_order(game, power, order, ["NTH"])
         assert result == expected
 
+    game = Game()
     game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
     game.process()
     game.set_orders("ENGLAND", ['F NTH C YOR - HOL', 'A YOR - HOL VIA', 'F ENG H'])
@@ -84,10 +81,9 @@ def test_daidefy_order():
 
     for order, expected in bld.items():
         result = daidefy_order(game, power, order)
-        print(result, expected)
         assert result == expected
 
-
+    game = Game()
     game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
     game.process()
     game.set_orders("ENGLAND", ['F NTH C YOR - HOL', 'A YOR - HOL VIA', 'F ENG H'])
@@ -109,14 +105,13 @@ def test_daidefy_order():
 
     for order, expected in rto.items():
         result = daidefy_order(game, power, order)
-        print(result, expected)
         assert result == expected
 
     for order, expected in dsb.items():
         result = daidefy_order(game, power, order, [], True)
-        print(result, expected)
         assert result == expected
 
+    game = Game()
     game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
     game.process()
     game.set_orders("ENGLAND", ['F NTH C YOR - HOL', 'A YOR - HOL VIA', 'F ENG H'])
@@ -144,9 +139,8 @@ def test_daidefy_order():
 
     for order, expected in rem.items():
         result = daidefy_order(game, power, order)
-        print(result, expected)
         assert result == expected
-"""
+
 
 def test_dipnet_order():
     hlds = {
@@ -203,4 +197,4 @@ def test_dipnet_order():
 
 if __name__ == "__main__":
     test_daidefy_order()
-    #test_dipnet_order()
+    test_dipnet_order()
