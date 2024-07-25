@@ -125,16 +125,6 @@ def get_unit_power(game: Game, unit: str) -> str:
             #print('get_unit_power:', pp)
             return pp[:3]
 
-
-def unit_to_daide(power, unit):
-    """
-        obsolete
-    """
-    assert len(unit) == 2
-    unit_type = "FLT" if unit[0] == "F" else "AMY"
-
-    return '( ' + power + ' ' + unit_type + ' ' + unit[1] + ' )'
-
 def decimal_to_hex(decimal):
     return hex(decimal)[2:].zfill(4)
 
