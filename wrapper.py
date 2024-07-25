@@ -1,7 +1,8 @@
 import socket
 import random
+from typing_extensions import List
 
-from convert import convert, convert_to_hex
+#from convert import convert, convert_to_hex
 from time import sleep
 from diplomacy import Game
 
@@ -43,6 +44,19 @@ POW WVE <--> ?
 
 """
 
+def dipnet_location(loc: str) -> str:
+    if ' ' in loc:
+        loc = loc.replace('(', '').replace(')', '')
+        prov, coast = loc.split(' ')
+        prov = prov.strip()
+        coast = coast.strip()
+        return '/'.join([prov, coast[:-1]])
+    else:
+        if loc in daide2dipnet_loc:
+            return daide2dipnet_loc[loc]
+
+    return loc
+
 def daidefy_location(loc: str) -> str:
     """Converts DipNet-style location to DAIDE-style location
 
@@ -58,14 +72,29 @@ def daidefy_location(loc: str) -> str:
     if '/' in loc:
         prov, coast = loc.split('/')
         coast += "S"
-        return ' '.join([prov, coast])
+        return ' '.join(['(', prov, coast, ')'])
     else:
         if loc in dipnet2daide_loc:
             return dipnet2daide_loc[loc]
-        
+
     return loc
 
-def daidefy_unit(unit):
+def dipnet_unit(unit: List[str]):
+    assert len(unit) == 5 or len(unit) == 8
+    if len(unit) == 5:
+        # non coastal
+        unit = unit[2:4]
+        unit_type = unit[0][0]
+        loc = dipnet_location(unit[1])
+        return unit_type + ' ' + loc
+    else:
+        # coastal
+        unit = unit[2:7]
+        unit_type = unit[0][0]
+        loc = dipnet_location(' '.join(unit[2:4]))
+        return unit_type + ' ' + loc
+
+def daidefy_unit(unit: List[str]):
     """Converts DipNet-style unit to DAIDE-style unit
 
     E.g. (for initial game state)
@@ -108,6 +137,53 @@ def unit_to_daide(power, unit):
 
 def decimal_to_hex(decimal):
     return hex(decimal)[2:].zfill(4)
+
+def dipnet_order(order: str) -> str:
+    splitted = order.split(' ')
+    is_coastal = splitted[3] == '('
+
+    if is_coastal:
+        unit = splitted[0:8]
+        rest = splitted[8:]
+    else:
+        unit = splitted[0:5]
+        rest = splitted[5:]
+
+    dipnet_u = dipnet_unit(unit)
+
+    if len(rest) == 1:
+        # HLD/BLD/DSB/REM
+        if rest[0] == 'REM':
+            return dipnet_u + ' D'
+        else:
+            return dipnet_u + ' ' + rest[0][0]
+    elif len(rest) == 2:
+        # MTO/RTO
+        if rest[0] == 'RTO':
+            return dipnet_u + ' R ' + dipnet_location(rest[1])
+        else:
+            return dipnet_u + ' - ' + dipnet_location(rest[1])
+    else:
+        move_type = rest[0]
+        if move_type == 'CTO':
+            return dipnet_u + ' - ' + dipnet_location(rest[1]) + ' VIA'
+        elif move_type == 'CVY':
+            cvy_unit = dipnet_unit(rest[1:6])
+            cto_loc = dipnet_location(rest[7])
+            return dipnet_u + ' C ' + cvy_unit + ' - ' + cto_loc
+        else:
+            len_sup = len(rest)
+            if len_sup == 6:
+                sup_unit = dipnet_unit(rest[1:])
+                return dipnet_u + ' S ' + sup_unit + ' H'
+            elif len_sup == 8:
+                sub_order = dipnet_order(' '.join(rest[1:]))
+                return dipnet_u + ' S ' + sub_order
+            else:
+                raise ValueError(f"Invalid sup order: {order}")
+
+    raise ValueError(f"Invalid order: {order}")
+
 
 def daidefy_order(game: Game, power: str, order: str, via_locs: list = None, dsb: bool = False) -> str:
     splitted = order.split(' ')
@@ -167,14 +243,14 @@ def daidefy_order(game: Game, power: str, order: str, via_locs: list = None, dsb
 
                 if 'H' in rest:
                     return result.replace(' HLD', '')
-                
+
                 return result
             else:
                 assert 'C' in rest, f"CVY order has no 'C' element: {order}"
-                
+
                 result = daide_primary_unit + ' CVY ' + secondary_move
                 return result.replace('MTO', 'CTO')
-            
+
         elif 'H' in rest:
             # HLD
             assert len(rest) == 1, f"HLD order has more than 1 element: {order}"
@@ -184,9 +260,9 @@ def daidefy_order(game: Game, power: str, order: str, via_locs: list = None, dsb
 
 def dip_order_to_daide(power, order):
     print('dip_order_to_daide:', power, order)
-    splitted = order.split(' ')       
+    splitted = order.split(' ')
 
-    assert len(splitted) < 8 
+    assert len(splitted) < 8
 
     unit = splitted[:2]
     rest = splitted[2:]
@@ -237,7 +313,7 @@ def main():
         len_not_gof = decimal_to_hex(cal_remaining_len(not_gof))
 
         sock.sendall(bytes.fromhex(DM_PREFIX + len_not_gof + not_gof))
-        
+
         message_type, rest = read_data(sock)
         print(message_type, ' '.join(convert(rest)))
 
