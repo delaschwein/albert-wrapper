@@ -1,4 +1,4 @@
-from dip import Game
+from diplomacy import Game
 from typing import List
 
 # convert 4B to ascii
@@ -292,7 +292,7 @@ def convert_to_hex(message):
 
 def dipnet_location(loc: str) -> str:
     if ' ' in loc:
-        loc = loc.replace('(', '').replace(')', '')
+        loc = loc.replace('(', '').replace(')', '').strip()
         prov, coast = loc.split(' ')
         prov = prov.strip()
         coast = coast.strip()
@@ -363,9 +363,9 @@ def daidefy_unit(game: Game, unit: List[str]):
     return ' '.join(['(', pow, unit_type, loc, ')'])
 
 def get_unit_power(game: Game, unit: str) -> str:
-    #print('get_unit_power:', unit)
+    print('get_unit_power:', unit)
     loc_dict = game.get_orderable_locations()
-    #print('get_unit_power:', loc_dict)
+    print('get_unit_power:', loc_dict)
     for pp, locs in loc_dict.items():
         if unit in locs:
             #print('get_unit_power:', pp)
@@ -407,6 +407,13 @@ def dipnet_order(order: str) -> str:
             cvy_unit = dipnet_unit(rest[1:6])
             cto_loc = dipnet_location(rest[7])
             return dipnet_u + ' C ' + cvy_unit + ' - ' + cto_loc
+        elif move_type == 'MTO' or move_type == 'RTO':
+            # MTO/RTO coastal
+            secondary_loc = dipnet_location(' '.join(rest[1:]))
+            if move_type == 'MTO':
+                return dipnet_u + ' - ' + secondary_loc
+            else:
+                return dipnet_u + ' R ' + secondary_loc
         else:
             len_sup = len(rest)
             if len_sup == 6:
@@ -422,8 +429,13 @@ def dipnet_order(order: str) -> str:
 
 
 def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False) -> str:
+    print('daidefy_order:', order)
     splitted = order.split(' ')
     unit_type, loc, *rest = splitted
+
+    if len(rest) == 0:
+        return daidefy_unit(game, [unit_type, loc])
+
     #loc = loc if '/' not in loc else loc.split('/')[0]
     daide_unit_type = 'FLT' if unit_type == 'F' else 'AMY'
     daide_loc = daidefy_location(loc)
@@ -474,7 +486,7 @@ def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: 
                 return daide_primary_unit + ' REM'
         elif 'S' in rest or 'C' in rest:
             # SUP/CVY
-            assert len(rest) > 3, f"SUP/CVY order has less than 4 elements: {order}"
+            assert len(rest) > 2, f"SUP/CVY order has less than 3 elements: {order}"
             secondary_loc = rest[2]
 
             if '/' in secondary_loc:
@@ -484,6 +496,8 @@ def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: 
 
             secondary_move = daidefy_order(game, secondary_power, ' '.join(rest[1:]))
             if 'S' in rest:
+                if '( ' not in secondary_move:
+                    secondary_move = '( ' + secondary_move + ' )'
                 result = daide_primary_unit + ' SUP ' + secondary_move
 
                 if 'H' in rest:
@@ -506,3 +520,81 @@ def hex_to_decimal(hex):
 
 def cal_remaining_len(data):
     return len(data) // 2
+
+def process_now(info: str) -> List[str]:
+    assert 'NOW' in info, f"Invalid NOW message: {info}"
+    splitted = info.strip().split(' ')[1:]
+
+    result = []
+    curr = []
+    stack = []
+
+    while len(splitted) > 0:
+        # get the first item in list
+        item = splitted.pop(0)
+        
+        if item == ')':
+            # closing bracket
+            if len(stack) == 1 and stack[0] == '(':
+                # add to result
+                result.append(' '.join(curr))
+                # reset
+                curr = []
+                stack = []
+            elif stack[-1] == '(':
+                # inner closing brackets -- costal case
+                stack.pop()
+                curr.append(item)
+            else:
+                stack.append(item)
+        elif item == '(':
+            # inner starting bracket -- costal case
+            if len(stack) > 0:
+                curr.append(item)
+            stack.append(item)
+        else:
+            curr.append(item)
+
+    assert len(stack) == 0, f"Invalid NOW message: {info}"
+    assert len(curr) == 0, f"Invalid NOW message: {info}"
+
+    return result
+
+def process_ord(message: str) -> List[str]:
+    assert 'ORD' in message, f"Invalid ORD message: {message}"
+    splitted = message.strip().split(' ')[1:]
+
+    result = []
+    curr = []
+    stack = []
+
+    while len(splitted) > 0:
+        # get the first item in list
+        item = splitted.pop(0)
+        
+        if item == ')':
+            # closing bracket
+            if len(stack) == 1 and stack[0] == '(':
+                # add to result
+                result.append(' '.join(curr))
+                # reset
+                curr = []
+                stack = []
+            elif stack[-1] == '(':
+                # inner closing brackets -- costal case
+                stack.pop()
+                curr.append(item)
+            else:
+                stack.append(item)
+        elif item == '(':
+            # inner starting bracket -- costal case
+            if len(stack) > 0:
+                curr.append(item)
+            stack.append(item)
+        else:
+            curr.append(item)
+
+    assert len(stack) == 0, f"Invalid NOW message: {message}"
+    assert len(curr) == 0, f"Invalid NOW message: {message}"
+
+    return result

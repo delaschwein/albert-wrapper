@@ -18,28 +18,14 @@ from utils import (
     daidefy_order,
     cal_remaining_len,
     hex_to_decimal,
+    process_now,
+    process_ord,
 )
+
 from diplomacy import Game
 
 game = Game()
-
-
-"""
-order types
-( POW UNT LOC ) HLD <--> U LOC H
-( POW UNT LOC ) MTO LOC <--> U LOC - LOC
-( POW UNT LOC ) SUP ( POW UNT LOC ) <--> U LOC S U LOC H
-( POW UNT LOC ) SUP ( POW UNT LOC ) MTO PNC <--> U LOC S U LOC - LOC
-( POW UNT LOC ) CVY ( POW UNT LOC ) CTO LOC <--> U LOC C U LOC - LOC
-( POW UNT LOC ) CTO ( POW UNT LOC ) VIA (LOC ...) <--> U LOC - LOC VIA
-
-( POW UNT LOC ) DSB <--> U LOC D
-( POW UNT LOC ) RTO LOC <--> U LOC R LOC
-( POW UNT LOC ) BLD <--> U LOC B
-( POW UNT LOC ) REM <--> U LOC D
-POW WVE <--> ?
-
-"""
+game.add_rule("DONT_SKIP_PHASES")
 
 
 def main():
@@ -56,7 +42,8 @@ def main():
         rest = sock.recv(remaining_len)
         return message_type, rest.hex()
 
-    def send_order(sock, order):
+
+    def send_not_gof(sock):
         # set wait
         not_gof = convert_to_hex(["NOT", "(", "GOF", ")"])
         len_not_gof = decimal_to_hex(cal_remaining_len(not_gof))
@@ -66,7 +53,47 @@ def main():
         message_type, rest = read_data(sock)
         print(message_type, " ".join(convert(rest)))
 
+    def send_gof(sock):
+        gof = convert_to_hex(["GOF"])
+
+        sock.sendall(
+            bytes.fromhex(DM_PREFIX + decimal_to_hex(cal_remaining_len(gof)) + gof)
+        )
+
+        message_type, rest = read_data(sock)
+        print(message_type, " ".join(convert(rest)))
+
+    def send_order(sock, orders):
+        #send_not_gof(sock)
+
+        #daide_orders, season, year_hex = get_random_orders()
+
+        
+
+        # only submit orders if there are any
+        if len(orders) > 0:
+            submit_orders = convert_to_hex(["SUB", "(", season, year_hex, ")"])
+
+            for daide_order in orders:
+                pieces = daide_order.split(" ")
+                submit_orders += convert_to_hex(["("])
+                submit_orders += convert_to_hex(pieces)
+                submit_orders += convert_to_hex([")"])
+
+            sock.sendall(
+                bytes.fromhex(
+                    DM_PREFIX
+                    + decimal_to_hex(cal_remaining_len(submit_orders))
+                    + submit_orders
+                )
+            )
+
+            #message_type, rest = read_data(sock)
+            #print(message_type, " ".join(convert(rest)))
+
+    def get_random_orders():
         # generate, convert from shorthand to daide, send
+        print(f'generating random orders for {game.phase}')
         possible_orders = game.get_all_possible_orders()
         power_orders = [
             random.choice(possible_orders[loc])
@@ -84,39 +111,37 @@ def main():
         ]
         print("Converted:", daide_orders)
 
-        submit_orders = convert_to_hex(["SUB", "(", season, year_hex, ")"])
+        return daide_orders, season, year_hex
+    
+    def gen_send_orders(sock):
+        """
+        Generate random orders and send them to the server until success
+        """
+        ords, s, y = get_random_orders()
 
-        for daide_order in daide_orders:
-            pieces = daide_order.split(" ")
-            submit_orders += convert_to_hex(["("])
-            submit_orders += convert_to_hex(pieces)
-            submit_orders += convert_to_hex([")"])
+        success = False
 
-        sock.sendall(
-            bytes.fromhex(
-                DM_PREFIX
-                + decimal_to_hex(cal_remaining_len(submit_orders))
-                + submit_orders
-            )
-        )
+        if len(ords) > 0:
+            while not success:
+                ords, s, y = get_random_orders()
+                responses = []
+                send_order(sock, ords)
+                
+                for ii in range(len(ords)):
+                    return_msg_type, return_data = read_data(sock)
+                    print(f'order submit result: {" ".join(convert(return_data))}')
+                    response = " ".join(convert(return_data))
+                    responses.append(response)
 
-        message_type, rest = read_data(sock)
-        print(message_type, " ".join(convert(rest)))
-
-        gof = convert_to_hex(["GOF"])
-
-        sock.sendall(
-            bytes.fromhex(DM_PREFIX + decimal_to_hex(cal_remaining_len(gof)) + gof)
-        )
-
-        message_type, rest = read_data(sock)
-        print(message_type, " ".join(convert(rest)))
+                if not any("NSU" in response for response in responses):
+                    success = True
+        return success
 
     server_address = ("localhost", 16713)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    #sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
     # Connect to the server
     sock.connect(server_address)
@@ -139,6 +164,7 @@ def main():
     DM_PREFIX = "0200"
 
     self_power = None
+    curr_result = {}
 
     try:
         for msg in to_send:
@@ -154,8 +180,18 @@ def main():
             return_msg_type, return_data = read_data(sock)
 
             daide = " ".join(convert(return_data))
+            print(daide)
 
-            if any(power in daide for power in POWERS):
+            if "MIS" in daide and self_power:
+                """ ords, s, y = get_random_orders()
+                if len(ords) > 0:
+                    send_not_gof(sock)
+                    send_order(sock, ords)
+                    send_gof(sock) """
+                pass
+
+
+            if "HLO" in daide and any(power in daide for power in POWERS):
                 print("assigned power:", daide[6:9])
                 self_power = daide[6:9]
 
@@ -164,9 +200,93 @@ def main():
                 print("OFF message received, exiting...")
                 break
 
-            if self_power:
-                send_order(sock, [])
-                break
+            if "NOW" in daide:
+
+                info = process_now(daide.strip())
+                phase, *units = info
+                season, year_hex = phase.split(" ")
+                year = hex_to_decimal(year_hex)
+                print(f'Phase: {phase}, Year: {year}')
+                now_phase = (int(year) - 1901) * 5
+
+
+                if season == "SPR":
+                    #assert game.phase.startswith("SPRING") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
+                    now_phase += 1
+                elif season == "SUM":
+                    #assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
+                    now_phase += 2
+                elif season == "FAL":
+                    #assert game.phase.startswith("FALL") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
+                    now_phase += 3
+                elif season == "AUT":
+                    #assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
+                    now_phase += 4
+                elif season == "WIN":
+                    #print(game.phase)
+                    now_phase += 5
+
+                engine_phase_abbr = game.get_current_phase()
+                print(f"Engine phase: {engine_phase_abbr}")
+                engine_season = engine_phase_abbr[0]
+                engine_year = engine_phase_abbr[1:5]
+                engine_phase = engine_phase_abbr[5]
+                engine_phase_num = (int(engine_year) - 1901) * 5
+                if engine_season == "S" and engine_phase == "M":
+                    engine_phase_num += 1
+                elif engine_season == "S" and engine_phase == "R":
+                    engine_phase_num += 2
+                elif engine_season == "F" and engine_phase == "M":
+                    engine_phase_num += 3
+                elif engine_season == "F" and engine_phase == "R":
+                    engine_phase_num += 4
+                elif engine_season == "W":
+                    engine_phase_num += 5
+
+                if engine_phase_num < now_phase:
+                    for ii in range(now_phase - engine_phase_num):
+                        game.process()
+                        print(f"Processed phase {game.phase}")
+                
+
+
+                if self_power:
+                    send_not_gof(sock)
+                    gen_send_orders(sock)
+                    send_gof(sock)
+
+
+                for pp, orders in curr_result.items():
+                    game.set_orders(POWER_NAMES[pp], orders)
+
+
+                #game.process()
+
+            if "ORD" in daide:
+                order_power = None
+                print(f"ORD message received {daide}")
+                phase, order, *rest = process_ord(daide.strip())
+
+                if 'NSO' in rest:
+                    print('NSO')
+                    continue
+                season, year_hex = phase.split(" ")
+                year = hex_to_decimal(year_hex)
+
+                for token in order.split(" "):
+                    if token in POWER_NAMES:
+                        order_power = token
+                        break
+
+                order = dipnet_order(order)
+
+                if order_power not in curr_result:
+                    curr_result[order_power] = []
+                curr_result[order_power].append(order)
+
+                game.set_orders(POWER_NAMES[order_power], curr_result[order_power])
+
+
 
     except KeyboardInterrupt:
         print("Closing socket")

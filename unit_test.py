@@ -24,8 +24,8 @@ def test_daidefy_order():
         assert result == expected
 
     sup_hld = {
-        "F STP/SC S A MOS H": "( RUS FLT ( STP SCS ) ) SUP ( RUS AMY MOS )",
-        "A MOS S F STP/SC H": "( RUS AMY MOS ) SUP ( RUS FLT ( STP SCS ) )",
+        "F STP/SC S A MOS": "( RUS FLT ( STP SCS ) ) SUP ( RUS AMY MOS )",
+        "A MOS S F STP/SC": "( RUS AMY MOS ) SUP ( RUS FLT ( STP SCS ) )",
     }
 
     for order, expected in sup_hld.items():
