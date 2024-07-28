@@ -357,8 +357,8 @@ def daidefy_unit(game: Game, unit: List[str]):
     assert len(unit) == 2
     unit_type = "FLT" if unit[0] == "F" else "AMY"
     loc = daidefy_location(unit[1])
-    if len(loc) > 3:
-        loc = loc[:3]
+    if ' ' in loc and len(loc.split(' ')) > 3:
+        loc = loc.split(' ')[1]
     pow = get_unit_power(game, loc)
     return ' '.join(['(', pow, unit_type, loc, ')'])
 

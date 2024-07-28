@@ -92,6 +92,8 @@ def main():
         # generate, convert from shorthand to daide, send
         print(f"generating random orders for {game.phase}")
         possible_orders = game.get_all_possible_orders()
+
+        print("Possible orders:", possible_orders)
         power_orders = [
             random.choice(possible_orders[loc])
             for loc in game.get_orderable_locations(POWER_NAMES[self_power])
