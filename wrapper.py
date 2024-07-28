@@ -98,6 +98,28 @@ def main():
         year_hex = decimal_to_hex(int(year))
 
         print("Converting:", power_orders)
+
+        daide_orders = []
+
+        for order in power_orders:
+            cvy_loc = []
+
+            if 'VIA' in order:
+                without_via = order.split('VIA')[0].strip()
+                cvy_pattern = "C " + without_via
+
+                # getting VIA locations 
+                for loc, loc_ords in possible_orders.items():
+                    for loc_ord in loc_ords:
+                        if cvy_pattern in loc_ord:
+                            cvy_loc.append(loc_ord.split(' ')[1])
+                            break
+
+            if game.get_current_phase()[-1] == "R":
+                daide_orders.append(daidefy_order(game, self_power, order, cvy_loc, True))
+            else:
+                daide_orders.append(daidefy_order(game, self_power, order, cvy_loc))
+
         daide_orders = (
             [daidefy_order(game, self_power, order, [], True) for order in power_orders]
             if game.get_current_phase()[-1] == "R"
