@@ -6,13 +6,6 @@ from utils import (
     convert,
     convert_to_hex,
     POWER_NAMES,
-    DIPNET2DAIDE_LOC,
-    DAIDE2DIPNET_LOC,
-    dipnet_location,
-    daidefy_location,
-    dipnet_unit,
-    daidefy_unit,
-    get_unit_power,
     decimal_to_hex,
     dipnet_order,
     daidefy_order,
@@ -209,6 +202,7 @@ def main():
                 print(f"Phase: {phase}, Year: {year}")
                 now_phase = (int(year) - 1901) * 5
 
+                # ensure engine in sync
                 if season == "SPR":
                     # assert game.phase.startswith("SPRING") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
                     now_phase += 1
@@ -249,6 +243,7 @@ def main():
 
                 print(now_phase, engine_phase_num)
 
+                # send orders if power assigned
                 if self_power:
                     send_not_gof(sock)
                     gen_send_orders(sock)
@@ -270,6 +265,7 @@ def main():
                 season, year_hex = phase.split(" ")
                 year = hex_to_decimal(year_hex)
 
+                # receive order result from server and submit to local
                 for token in order.split(" "):
                     if token in POWER_NAMES:
                         order_power = token
