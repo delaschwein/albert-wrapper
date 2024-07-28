@@ -42,7 +42,6 @@ def main():
         rest = sock.recv(remaining_len)
         return message_type, rest.hex()
 
-
     def send_not_gof(sock):
         # set wait
         not_gof = convert_to_hex(["NOT", "(", "GOF", ")"])
@@ -64,11 +63,9 @@ def main():
         print(message_type, " ".join(convert(rest)))
 
     def send_order(sock, orders):
-        #send_not_gof(sock)
+        # send_not_gof(sock)
 
-        #daide_orders, season, year_hex = get_random_orders()
-
-        
+        # daide_orders, season, year_hex = get_random_orders()
 
         # only submit orders if there are any
         if len(orders) > 0:
@@ -88,12 +85,12 @@ def main():
                 )
             )
 
-            #message_type, rest = read_data(sock)
-            #print(message_type, " ".join(convert(rest)))
+            # message_type, rest = read_data(sock)
+            # print(message_type, " ".join(convert(rest)))
 
     def get_random_orders():
         # generate, convert from shorthand to daide, send
-        print(f'generating random orders for {game.phase}')
+        print(f"generating random orders for {game.phase}")
         possible_orders = game.get_all_possible_orders()
         power_orders = [
             random.choice(possible_orders[loc])
@@ -106,13 +103,15 @@ def main():
         year_hex = decimal_to_hex(int(year))
 
         print("Converting:", power_orders)
-        daide_orders = [
-            daidefy_order(game, self_power, order) for order in power_orders
-        ]
+        daide_orders = (
+            [daidefy_order(game, self_power, order, [], True) for order in power_orders]
+            if game.get_current_phase()[-1] == "R"
+            else [daidefy_order(game, self_power, order) for order in power_orders]
+        )
         print("Converted:", daide_orders)
 
         return daide_orders, season, year_hex
-    
+
     def gen_send_orders(sock):
         """
         Generate random orders and send them to the server until success
@@ -126,7 +125,7 @@ def main():
                 ords, s, y = get_random_orders()
                 responses = []
                 send_order(sock, ords)
-                
+
                 for ii in range(len(ords)):
                     return_msg_type, return_data = read_data(sock)
                     print(f'order submit result: {" ".join(convert(return_data))}')
@@ -141,7 +140,7 @@ def main():
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    #sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    # sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
     # Connect to the server
     sock.connect(server_address)
@@ -190,7 +189,6 @@ def main():
                     send_gof(sock) """
                 pass
 
-
             if "HLO" in daide and any(power in daide for power in POWERS):
                 print("assigned power:", daide[6:9])
                 self_power = daide[6:9]
@@ -206,24 +204,23 @@ def main():
                 phase, *units = info
                 season, year_hex = phase.split(" ")
                 year = hex_to_decimal(year_hex)
-                print(f'Phase: {phase}, Year: {year}')
+                print(f"Phase: {phase}, Year: {year}")
                 now_phase = (int(year) - 1901) * 5
 
-
                 if season == "SPR":
-                    #assert game.phase.startswith("SPRING") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
+                    # assert game.phase.startswith("SPRING") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
                     now_phase += 1
                 elif season == "SUM":
-                    #assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
+                    # assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
                     now_phase += 2
                 elif season == "FAL":
-                    #assert game.phase.startswith("FALL") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
+                    # assert game.phase.startswith("FALL") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
                     now_phase += 3
                 elif season == "AUT":
-                    #assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
+                    # assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
                     now_phase += 4
                 elif season == "WIN":
-                    #print(game.phase)
+                    # print(game.phase)
                     now_phase += 5
 
                 engine_phase_abbr = game.get_current_phase()
@@ -247,28 +244,26 @@ def main():
                     for ii in range(now_phase - engine_phase_num):
                         game.process()
                         print(f"Processed phase {game.phase}")
-                
 
+                print(now_phase, engine_phase_num)
 
                 if self_power:
                     send_not_gof(sock)
                     gen_send_orders(sock)
                     send_gof(sock)
 
-
                 """ for pp, orders in curr_result.items():
                     game.set_orders(POWER_NAMES[pp], orders) """
 
-
-                #game.process()
+                # game.process()
 
             if "ORD" in daide:
                 order_power = None
                 print(f"ORD message received {daide}")
                 phase, order, *rest = process_ord(daide.strip())
 
-                if 'NSO' in rest:
-                    print('NSO')
+                if "NSO" in rest:
+                    print("NSO")
                     continue
                 season, year_hex = phase.split(" ")
                 year = hex_to_decimal(year_hex)
@@ -283,11 +278,9 @@ def main():
                 if order_power not in curr_result:
                     curr_result[order_power] = []
                 curr_result[order_power].append(order)
-                print('curr_result:\n', curr_result)
+                print("curr_result:\n", curr_result)
 
                 game.set_orders(POWER_NAMES[order_power], curr_result[order_power])
-
-
 
     except KeyboardInterrupt:
         print("Closing socket")

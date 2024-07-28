@@ -392,7 +392,10 @@ def dipnet_order(order: str) -> str:
 
     dipnet_u = dipnet_unit(unit)
 
-    if len(rest) == 1:
+    if len(rest) == 0:
+        return dipnet_u
+
+    elif len(rest) == 1:
         # HLD/BLD/DSB/REM
         if rest[0] == 'REM':
             return dipnet_u + ' D'
@@ -420,13 +423,8 @@ def dipnet_order(order: str) -> str:
             else:
                 return dipnet_u + ' R ' + secondary_loc
         else:
-            len_sup = len(rest)
-            if len_sup == 6:
-                sup_unit = dipnet_unit(rest[1:])
-                return dipnet_u + ' S ' + sup_unit + ' H'
-            else:
-                sub_order = dipnet_order(' '.join(rest[1:]))
-                return dipnet_u + ' S ' + sub_order
+            sub_order = dipnet_order(' '.join(rest[1:]))
+            return dipnet_u + ' S ' + sub_order
 
 def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False) -> str:
     print('daidefy_order:', order)
