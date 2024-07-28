@@ -424,14 +424,9 @@ def dipnet_order(order: str) -> str:
             if len_sup == 6:
                 sup_unit = dipnet_unit(rest[1:])
                 return dipnet_u + ' S ' + sup_unit + ' H'
-            elif len_sup == 8:
+            else:
                 sub_order = dipnet_order(' '.join(rest[1:]))
                 return dipnet_u + ' S ' + sub_order
-            else:
-                raise ValueError(f"Invalid sup order: {order}")
-
-    raise ValueError(f"Invalid order: {order}")
-
 
 def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False) -> str:
     print('daidefy_order:', order)

@@ -201,7 +201,7 @@ def main():
                 break
 
             if "NOW" in daide:
-
+                curr_result = {}
                 info = process_now(daide.strip())
                 phase, *units = info
                 season, year_hex = phase.split(" ")
