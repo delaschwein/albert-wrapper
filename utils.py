@@ -376,6 +376,10 @@ def decimal_to_hex(decimal):
 
 def dipnet_order(order: str) -> str:
     splitted = order.split(' ')
+
+    if len(splitted) == 2 and splitted[1] == 'WVE':
+        return 'WAIVE'
+
     is_coastal = splitted[3] == '('
 
     if is_coastal:
@@ -430,6 +434,10 @@ def dipnet_order(order: str) -> str:
 
 def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False) -> str:
     print('daidefy_order:', order)
+
+    if order == 'WAIVE':
+        return power + ' WVE'
+
     splitted = order.split(' ')
     unit_type, loc, *rest = splitted
 

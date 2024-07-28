@@ -1,0 +1,32 @@
+2 YES ( GOF )
+ORD ( AUT 0770 ) ( ( FRA AMY SPA ) DSB ) ( SUC )
+ORD message received ORD ( AUT 0770 ) ( ( FRA AMY SPA ) DSB ) ( SUC )
+SCO ( AUS BUD SER VIE TRI ) ( ENG BEL EDI LON LVP POR SPA ) ( FRA PAR BRE ) ( GER MUN DEN HOL KIE MAR ) ( ITA NAP ROM VEN ) ( RUS MOS WAR BER NWY RUM SEV SWE STP ) ( TUR ANK CON GRE SMY BUL ) ( UNO TUN )
+NOW ( WIN 0770 ) ( AUS AMY BUD ) ( AUS AMY SER ) ( AUS AMY VIE ) ( AUS AMY TRI ) ( ENG FLT MAO ) ( ENG FLT PIC ) ( ENG AMY YOR ) ( ENG FLT LON ) ( ENG FLT ( SPA SCS ) ) ( FRA AMY GAS ) ( FRA FLT BRE ) ( GER AMY MUN ) ( GER FLT NTH ) ( GER AMY PIE ) ( GER AMY DEN ) ( GER FLT KIE ) ( ITA AMY TUS ) ( ITA AMY VEN ) ( RUS AMY GAL ) ( RUS FLT BAR ) ( RUS FLT SKA ) ( RUS AMY PRU ) ( RUS FLT BER ) ( RUS AMY RUM ) ( RUS FLT SEV ) ( RUS AMY SWE ) ( TUR FLT BLA ) ( TUR FLT ION ) ( TUR FLT ALB ) ( TUR AMY GRE ) ( TUR AMY SMY ) ( TUR AMY BUL )
+Phase: WIN 0770, Year: 1904
+Engine phase: F1904R
+Processed phase WINTER 1904 ADJUSTMENTS
+2 YES ( NOT ( GOF ) )
+generating random orders for WINTER 1904 ADJUSTMENTS
+Converting: ['F NAP B']
+daidefy_order: F NAP B
+get_unit_power: NAP
+get_unit_power: {'AUSTRIA': [], 'ENGLAND': ['EDI', 'LON', 'LVP'], 'FRANCE': [], 'GERMANY': [], 'ITALY': ['NAP'], 'RUSSIA': ['BER', 'LVN', 'PRU', 'RUM', 'SEV', 'SKA', 'STP', 'SWE'], 'TURKEY': []}
+Converted: ['( ITA FLT NAP ) BLD']
+generating random orders for WINTER 1904 ADJUSTMENTS
+Converting: ['WAIVE']
+daidefy_order: WAIVE
+Traceback (most recent call last):
+  File "c:\Users\gargu\Downloads\work\albert-wrapper\wrapper.py", line 297, in <module>
+    main()
+  File "c:\Users\gargu\Downloads\work\albert-wrapper\wrapper.py", line 255, in main
+    gen_send_orders(sock)
+  File "c:\Users\gargu\Downloads\work\albert-wrapper\wrapper.py", line 126, in gen_send_orders
+    ords, s, y = get_random_orders()
+  File "c:\Users\gargu\Downloads\work\albert-wrapper\wrapper.py", line 109, in get_random_orders
+    daide_orders = [
+  File "c:\Users\gargu\Downloads\work\albert-wrapper\wrapper.py", line 110, in <listcomp>
+    daidefy_order(game, self_power, order) for order in power_orders
+  File "c:\Users\gargu\Downloads\work\albert-wrapper\utils.py", line 434, in daidefy_order
+    unit_type, loc, *rest = splitted
+ValueError: not enough values to unpack (expected at least 2, got 1)
