@@ -256,8 +256,8 @@ def main():
                     send_gof(sock)
 
 
-                for pp, orders in curr_result.items():
-                    game.set_orders(POWER_NAMES[pp], orders)
+                """ for pp, orders in curr_result.items():
+                    game.set_orders(POWER_NAMES[pp], orders) """
 
 
                 #game.process()
@@ -283,6 +283,7 @@ def main():
                 if order_power not in curr_result:
                     curr_result[order_power] = []
                 curr_result[order_power].append(order)
+                print('curr_result:\n', curr_result)
 
                 game.set_orders(POWER_NAMES[order_power], curr_result[order_power])
 

@@ -364,10 +364,11 @@ def daidefy_unit(game: Game, unit: List[str]):
 
 def get_unit_power(game: Game, unit: str) -> str:
     print('get_unit_power:', unit)
+    loc = dipnet_location(unit)
     loc_dict = game.get_orderable_locations()
     print('get_unit_power:', loc_dict)
     for pp, locs in loc_dict.items():
-        if unit in locs:
+        if loc in locs:
             #print('get_unit_power:', pp)
             return pp[:3]
 
