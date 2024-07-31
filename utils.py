@@ -363,13 +363,10 @@ def daidefy_unit(game: Game, unit: List[str]):
     return ' '.join(['(', pow, unit_type, loc, ')'])
 
 def get_unit_power(game: Game, unit: str) -> str:
-    print('get_unit_power:', unit)
     loc = dipnet_location(unit)
     loc_dict = game.get_orderable_locations()
-    print('get_unit_power:', loc_dict)
     for pp, locs in loc_dict.items():
         if loc in locs:
-            #print('get_unit_power:', pp)
             return pp[:3]
 
 def decimal_to_hex(decimal):
@@ -427,8 +424,6 @@ def dipnet_order(order: str) -> str:
             return dipnet_u + ' S ' + sub_order
 
 def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False) -> str:
-    print('daidefy_order:', order)
-
     if order == 'WAIVE':
         return power + ' WVE'
 
@@ -598,5 +593,28 @@ def process_ord(message: str) -> List[str]:
 
     assert len(stack) == 0, f"Invalid NOW message: {message}"
     assert len(curr) == 0, f"Invalid NOW message: {message}"
+
+    return result
+
+def process_sco(dist):
+    assert 'SCO' in dist, f"Invalid SCO message: {dist}"
+    splitted = dist.strip().split(' ')[1:]
+    result = {}
+    curr_p = None
+
+    for item in splitted:
+        if item == ')':
+            continue
+        elif item == '(':
+            continue
+        elif item == 'UNO':
+            return result
+        else:
+            if item in POWER_NAMES.keys():
+                if POWER_NAMES[item] not in result:
+                    result[POWER_NAMES[item]] = []
+                curr_p = POWER_NAMES[item]
+            else:
+                result[curr_p].append(dipnet_location(item))
 
     return result

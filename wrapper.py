@@ -1,6 +1,6 @@
 import socket
 import random
-from typing_extensions import List
+import json
 
 from utils import (
     convert,
@@ -13,6 +13,8 @@ from utils import (
     hex_to_decimal,
     process_now,
     process_ord,
+    dipnet_unit,
+    process_sco,
 )
 
 from diplomacy import Game
@@ -86,7 +88,7 @@ def main():
         print(f"generating random orders for {game.phase}")
         possible_orders = game.get_all_possible_orders()
 
-        print("Possible orders:", possible_orders)
+
         power_orders = [
             random.choice(possible_orders[loc])
             for loc in game.get_orderable_locations(POWER_NAMES[self_power])
@@ -97,7 +99,6 @@ def main():
         season = phase.split(" ")[0][:3]
         year_hex = decimal_to_hex(int(year))
 
-        print("Converting:", power_orders)
 
         daide_orders = []
 
@@ -120,13 +121,6 @@ def main():
             else:
                 daide_orders.append(daidefy_order(game, self_power, order, cvy_loc))
 
-        daide_orders = (
-            [daidefy_order(game, self_power, order, [], True) for order in power_orders]
-            if game.get_current_phase()[-1] == "R"
-            else [daidefy_order(game, self_power, order) for order in power_orders]
-        )
-        print("Converted:", daide_orders)
-
         return daide_orders, season, year_hex
 
     def gen_send_orders(sock):
@@ -142,10 +136,10 @@ def main():
                 ords, s, y = get_random_orders()
                 responses = []
                 send_order(sock, ords)
+                print(f"Sending orders: {ords}")
 
                 for ii in range(len(ords)):
                     return_msg_type, return_data = read_data(sock)
-                    print(f'order submit result: {" ".join(convert(return_data))}')
                     response = " ".join(convert(return_data))
                     responses.append(response)
 
@@ -207,7 +201,6 @@ def main():
                 pass
 
             if "HLO" in daide and any(power in daide for power in POWERS):
-                print("assigned power:", daide[6:9])
                 self_power = daide[6:9]
 
             if return_data == "4810" and daide == "OFF":
@@ -215,55 +208,51 @@ def main():
                 print("OFF message received, exiting...")
                 break
 
+            if 'SCO' in daide:
+                dist = process_sco(daide.strip())
+                game.clear_centers()
+                for power, centers in dist.items():
+                    game.set_centers(power, centers)
+
             if "NOW" in daide:
                 curr_result = {}
                 info = process_now(daide.strip())
                 phase, *units = info
                 season, year_hex = phase.split(" ")
-                year = hex_to_decimal(year_hex)
-                print(f"Phase: {phase}, Year: {year}")
-                now_phase = (int(year) - 1901) * 5
+                year = str(hex_to_decimal(year_hex))
+                curr_phase = ''
 
                 # ensure engine in sync
                 if season == "SPR":
-                    # assert game.phase.startswith("SPRING") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
-                    now_phase += 1
+                    curr_phase = "S" + year + "M"
                 elif season == "SUM":
-                    # assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
-                    now_phase += 2
+                    curr_phase = "S" + year + "R"
                 elif season == "FAL":
-                    # assert game.phase.startswith("FALL") and game.phase.endswith("MOVEMENT"), f"Expected {season} {year}, got {game.phase}"
-                    now_phase += 3
+                    curr_phase = "F" + year + "M"
                 elif season == "AUT":
-                    # assert game.phase.startswith("SPRING") and game.phase.endswith("RETREAT"), f"Expected {season} {year}, got {game.phase}"
-                    now_phase += 4
+                    curr_phase = "F" + year + "R"
                 elif season == "WIN":
-                    # print(game.phase)
-                    now_phase += 5
+                    curr_phase = "W" + year + "A"
 
-                engine_phase_abbr = game.get_current_phase()
-                print(f"Engine phase: {engine_phase_abbr}")
-                engine_season = engine_phase_abbr[0]
-                engine_year = engine_phase_abbr[1:5]
-                engine_phase = engine_phase_abbr[5]
-                engine_phase_num = (int(engine_year) - 1901) * 5
-                if engine_season == "S" and engine_phase == "M":
-                    engine_phase_num += 1
-                elif engine_season == "S" and engine_phase == "R":
-                    engine_phase_num += 2
-                elif engine_season == "F" and engine_phase == "M":
-                    engine_phase_num += 3
-                elif engine_season == "F" and engine_phase == "R":
-                    engine_phase_num += 4
-                elif engine_season == "W":
-                    engine_phase_num += 5
+                game.set_current_phase(curr_phase)
+                print(f"Current phase: {curr_phase}")
+                game.clear_units()
 
-                if engine_phase_num < now_phase:
-                    for ii in range(now_phase - engine_phase_num):
-                        game.process()
-                        print(f"Processed phase {game.phase}")
+                unit_dict = {}
+                
+                for unit in units:
+                    pow = unit[0:3]
+                    sp = unit.split(' ')
+                    if 'MRT' in sp:
+                        idx = sp.index('MRT')
+                        sp = sp[:idx]
+                    dipnet_u = dipnet_unit(['('] + sp + [')'])
+                    if POWER_NAMES[pow] not in unit_dict:
+                        unit_dict[POWER_NAMES[pow]] = []
+                    unit_dict[POWER_NAMES[pow]].append(dipnet_u)
 
-                print(now_phase, engine_phase_num)
+                for power, units in unit_dict.items():
+                    game.set_units(power, units)
 
                 # send orders if power assigned
                 if self_power:
@@ -278,12 +267,11 @@ def main():
 
             if "ORD" in daide:
                 order_power = None
-                print(f"ORD message received {daide}")
                 phase, order, *rest = process_ord(daide.strip())
 
-                if "NSO" in rest:
+                """ if any("NSO" in token for token in rest):
                     print("NSO")
-                    continue
+                    continue """
                 season, year_hex = phase.split(" ")
                 year = hex_to_decimal(year_hex)
 
@@ -298,7 +286,6 @@ def main():
                 if order_power not in curr_result:
                     curr_result[order_power] = []
                 curr_result[order_power].append(order)
-                print("curr_result:\n", curr_result)
 
                 game.set_orders(POWER_NAMES[order_power], curr_result[order_power])
 
