@@ -45,7 +45,6 @@ def main():
         sock.sendall(bytes.fromhex(DM_PREFIX + len_not_gof + not_gof))
 
         message_type, rest = read_data(sock)
-        print(message_type, " ".join(convert(rest)))
 
     def send_gof(sock):
         gof = convert_to_hex(["GOF"])
@@ -55,13 +54,8 @@ def main():
         )
 
         message_type, rest = read_data(sock)
-        print(message_type, " ".join(convert(rest)))
 
     def send_order(sock, orders):
-        # send_not_gof(sock)
-
-        # daide_orders, season, year_hex = get_random_orders()
-
         # only submit orders if there are any
         if len(orders) > 0:
             submit_orders = convert_to_hex(["SUB", "(", season, year_hex, ")"])
@@ -80,12 +74,8 @@ def main():
                 )
             )
 
-            # message_type, rest = read_data(sock)
-            # print(message_type, " ".join(convert(rest)))
-
     def get_random_orders():
         # generate, convert from shorthand to daide, send
-        print(f"generating random orders for {game.phase}")
         possible_orders = game.get_all_possible_orders()
 
         power_orders = [
@@ -114,6 +104,7 @@ def main():
                             cvy_loc.append(loc_ord.split(" ")[1])
                             break
 
+            # determine DSB or REM
             if game.get_current_phase()[-1] == "R":
                 daide_orders.append(
                     daidefy_order(game, self_power, order, cvy_loc, True)
@@ -151,11 +142,8 @@ def main():
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    # sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-
     # Connect to the server
     sock.connect(server_address)
-    print(f"Connected to {server_address}")
 
     message = "000000040001da10"
 
@@ -177,6 +165,7 @@ def main():
     curr_result = {}
 
     try:
+        # join game
         for msg in to_send:
             # convert message to bytes
             msg = bytes.fromhex(msg)
@@ -199,7 +188,6 @@ def main():
                 self_power = daide[6:9]
 
             if return_data == "4810" and daide == "OFF":
-                print("OFF message received, exiting...")
                 break
 
             if "SCO" in daide:
@@ -229,7 +217,6 @@ def main():
                     curr_phase = "W" + year + "A"
 
                 game.set_current_phase(curr_phase)
-                print(f"Current phase: {curr_phase}")
                 game.clear_units()
 
                 unit_dict = {}
@@ -247,6 +234,9 @@ def main():
 
                 for power, units in unit_dict.items():
                     game.set_units(power, units)
+
+                print("result:", game.result)
+                print("game state:", game.get_state())
 
                 # send orders if power assigned
                 if self_power:
