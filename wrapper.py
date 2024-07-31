@@ -88,7 +88,6 @@ def main():
         print(f"generating random orders for {game.phase}")
         possible_orders = game.get_all_possible_orders()
 
-
         power_orders = [
             random.choice(possible_orders[loc])
             for loc in game.get_orderable_locations(POWER_NAMES[self_power])
@@ -99,25 +98,26 @@ def main():
         season = phase.split(" ")[0][:3]
         year_hex = decimal_to_hex(int(year))
 
-
         daide_orders = []
 
         for order in power_orders:
             cvy_loc = []
 
-            if 'VIA' in order:
-                without_via = order.split('VIA')[0].strip()
+            if "VIA" in order:
+                without_via = order.split("VIA")[0].strip()
                 cvy_pattern = "C " + without_via
 
-                # getting VIA locations 
+                # getting VIA locations
                 for loc, loc_ords in possible_orders.items():
                     for loc_ord in loc_ords:
                         if cvy_pattern in loc_ord:
-                            cvy_loc.append(loc_ord.split(' ')[1])
+                            cvy_loc.append(loc_ord.split(" ")[1])
                             break
 
             if game.get_current_phase()[-1] == "R":
-                daide_orders.append(daidefy_order(game, self_power, order, cvy_loc, True))
+                daide_orders.append(
+                    daidefy_order(game, self_power, order, cvy_loc, True)
+                )
             else:
                 daide_orders.append(daidefy_order(game, self_power, order, cvy_loc))
 
@@ -193,22 +193,16 @@ def main():
             print(daide)
 
             if "MIS" in daide and self_power:
-                """ ords, s, y = get_random_orders()
-                if len(ords) > 0:
-                    send_not_gof(sock)
-                    send_order(sock, ords)
-                    send_gof(sock) """
                 pass
 
             if "HLO" in daide and any(power in daide for power in POWERS):
                 self_power = daide[6:9]
 
             if return_data == "4810" and daide == "OFF":
-                # exit
                 print("OFF message received, exiting...")
                 break
 
-            if 'SCO' in daide:
+            if "SCO" in daide:
                 dist = process_sco(daide.strip())
                 game.clear_centers()
                 for power, centers in dist.items():
@@ -220,7 +214,7 @@ def main():
                 phase, *units = info
                 season, year_hex = phase.split(" ")
                 year = str(hex_to_decimal(year_hex))
-                curr_phase = ''
+                curr_phase = ""
 
                 # ensure engine in sync
                 if season == "SPR":
@@ -239,14 +233,14 @@ def main():
                 game.clear_units()
 
                 unit_dict = {}
-                
+
                 for unit in units:
                     pow = unit[0:3]
-                    sp = unit.split(' ')
-                    if 'MRT' in sp:
-                        idx = sp.index('MRT')
+                    sp = unit.split(" ")
+                    if "MRT" in sp:
+                        idx = sp.index("MRT")
                         sp = sp[:idx]
-                    dipnet_u = dipnet_unit(['('] + sp + [')'])
+                    dipnet_u = dipnet_unit(["("] + sp + [")"])
                     if POWER_NAMES[pow] not in unit_dict:
                         unit_dict[POWER_NAMES[pow]] = []
                     unit_dict[POWER_NAMES[pow]].append(dipnet_u)
@@ -260,18 +254,10 @@ def main():
                     gen_send_orders(sock)
                     send_gof(sock)
 
-                """ for pp, orders in curr_result.items():
-                    game.set_orders(POWER_NAMES[pp], orders) """
-
-                # game.process()
-
             if "ORD" in daide:
                 order_power = None
                 phase, order, *rest = process_ord(daide.strip())
 
-                """ if any("NSO" in token for token in rest):
-                    print("NSO")
-                    continue """
                 season, year_hex = phase.split(" ")
                 year = hex_to_decimal(year_hex)
 
