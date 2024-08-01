@@ -205,11 +205,20 @@ def main():
                     game.set_centers(power, centers)
 
             if "NOW" in daide:
-                curr_result = {}
                 info = process_now(daide.strip())
                 phase, *units = info
                 season, year_hex = phase.split(" ")
                 year = str(hex_to_decimal(year_hex))
+            
+                if "MRT" in daide:
+                    game.process()
+                    send_not_gof(sock)
+                    gen_send_orders(sock)
+                    send_gof(sock)
+                    print("shortcut for retreat phase")
+                    continue
+
+                curr_result = {}
                 curr_phase = ""
 
                 # ensure engine in sync
