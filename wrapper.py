@@ -1,6 +1,5 @@
 import socket
 import random
-import json
 
 from utils import (
     convert,
@@ -66,7 +65,7 @@ def main():
                 submit_orders += convert_to_hex(pieces)
                 submit_orders += convert_to_hex([")"])
 
-            print(f"Sending orders:", orders, submit_orders)
+            print("Sending orders:", orders, submit_orders)
 
             sock.sendall(
                 bytes.fromhex(
@@ -179,7 +178,7 @@ def main():
             sock.sendall(msg)
 
             return_msg_type, return_data = read_data(sock)
-        
+
         while True:
             return_msg_type, return_data = read_data(sock)
 
@@ -187,8 +186,8 @@ def main():
             print(daide)
 
             if "MIS" in daide and self_power:
-                #print(game.get_all_possible_orders())
-                #print(game.get_orders())
+                # print(game.get_all_possible_orders())
+                # print(game.get_orders())
                 print(game.get_state())
                 pass
 
@@ -209,7 +208,7 @@ def main():
                 phase, *units = info
                 season, year_hex = phase.split(" ")
                 year = str(hex_to_decimal(year_hex))
-            
+
                 if "MRT" in daide:
                     game.process()
                     send_not_gof(sock)

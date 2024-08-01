@@ -1,8 +1,6 @@
 from diplomacy import Game
 from typing import List
 
-# convert 4B to ascii
-
 HEX2DAIDE = {
     "4000": "(",
     "4001": ")",
@@ -292,6 +290,7 @@ def convert_to_hex(message):
 
 
 def dipnet_location(loc: str) -> str:
+    # coasts
     if " " in loc:
         loc = loc.replace("(", "").replace(")", "").strip()
         prov, coast = loc.split(" ")
@@ -331,13 +330,13 @@ def daidefy_location(loc: str) -> str:
 def dipnet_unit(unit: List[str]):
     assert len(unit) == 5 or len(unit) == 8
     if len(unit) == 5:
-        # non coastal
+        # non coasts
         unit = unit[2:4]
         unit_type = unit[0][0]
         loc = dipnet_location(unit[1])
         return unit_type + " " + loc
     else:
-        # coastal
+        # coasts
         unit = unit[2:7]
         unit_type = unit[0][0]
         loc = dipnet_location(" ".join(unit[2:4]))
@@ -369,6 +368,9 @@ def daidefy_unit(game: Game, unit: List[str]):
 
 
 def get_unit_power(game: Game, unit: str) -> str:
+    """
+    Determine the controller of a unit based on the location
+    """
     loc = dipnet_location(unit)
     loc_dict = game.get_orderable_locations()
     for pp, locs in loc_dict.items():
@@ -381,6 +383,9 @@ def decimal_to_hex(decimal):
 
 
 def dipnet_order(order: str) -> str:
+    """
+    DAIDE -> DipNet order converter.
+    """
     splitted = order.split(" ")
 
     if len(splitted) == 2 and splitted[1] == "WVE":
@@ -435,6 +440,9 @@ def dipnet_order(order: str) -> str:
 def daidefy_order(
     game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False
 ) -> str:
+    """
+    DipNet -> DAIDE order converter.
+    """
     if order == "WAIVE":
         return power + " WVE"
 
