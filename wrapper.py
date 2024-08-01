@@ -66,6 +66,8 @@ def main():
                 submit_orders += convert_to_hex(pieces)
                 submit_orders += convert_to_hex([")"])
 
+            print(f"Sending orders:", orders, submit_orders)
+
             sock.sendall(
                 bytes.fromhex(
                     DM_PREFIX
@@ -127,15 +129,18 @@ def main():
                 ords, s, y = get_random_orders()
                 responses = []
                 send_order(sock, ords)
-                print(f"Sending orders: {ords}")
 
                 for ii in range(len(ords)):
                     return_msg_type, return_data = read_data(sock)
                     response = " ".join(convert(return_data))
                     responses.append(response)
+                    print("Response", response)
+
+                print("Responses", responses)
 
                 if not any("NSU" in response for response in responses):
                     success = True
+        print("Orders sent successfully", ords)
         return success
 
     server_address = ("localhost", 16713)
@@ -174,7 +179,7 @@ def main():
             sock.sendall(msg)
 
             return_msg_type, return_data = read_data(sock)
-
+        
         while True:
             return_msg_type, return_data = read_data(sock)
 
@@ -182,6 +187,9 @@ def main():
             print(daide)
 
             if "MIS" in daide and self_power:
+                #print(game.get_all_possible_orders())
+                #print(game.get_orders())
+                print(game.get_state())
                 pass
 
             if "HLO" in daide and any(power in daide for power in POWERS):
@@ -235,9 +243,6 @@ def main():
                 for power, units in unit_dict.items():
                     game.set_units(power, units)
 
-                print("result:", game.result)
-                print("game state:", game.get_state())
-
                 # send orders if power assigned
                 if self_power:
                     send_not_gof(sock)
@@ -266,7 +271,6 @@ def main():
                 game.set_orders(POWER_NAMES[order_power], curr_result[order_power])
 
     except KeyboardInterrupt:
-        print("Closing socket")
         sock.close()
 
 
