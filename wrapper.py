@@ -1,5 +1,6 @@
 import socket
 import random
+import time
 
 from utils import (
     convert,
@@ -15,9 +16,11 @@ from utils import (
     dipnet_unit,
     process_sco,
     process_mrt,
+    process_frm,
 )
 
 from diplomacy import Game
+from diplomacy import Message
 
 game = Game()
 game.add_rule("DONT_SKIP_PHASES")
@@ -144,7 +147,9 @@ def main():
         return success
 
     def send_msg(sock, msg: list[str], recipients: list[str], season, year):
-        full_msg = ["SND", "(", season, year, ")", "("] + recipients + [")", "("] + msg + [")"]
+        full_msg = (
+            ["SND", "(", season, year, ")", "("] + recipients + [")", "("] + msg + [")"]
+        )
         full_msg = convert_to_hex(full_msg)
         len_full_msg = decimal_to_hex(cal_remaining_len(full_msg))
 
@@ -152,7 +157,7 @@ def main():
 
         message_type, rest = read_data(sock)
         print("Message sent, response:", " ".join(convert(rest)))
-    
+
     server_address = ("localhost", 16713)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -197,13 +202,14 @@ def main():
             print(daide)
 
             if "MIS" in daide and self_power:
-                retreat_power, dipnet_u, dipnet_retreat_locs = process_mrt(daide.strip())
+                retreat_power, dipnet_u, dipnet_retreat_locs = process_mrt(
+                    daide.strip()
+                )
                 game_power = game.get_power(POWER_NAMES[retreat_power])
                 game_power.retreats[dipnet_u] = dipnet_retreat_locs
                 send_not_gof(sock)
                 gen_send_orders(sock)
                 send_gof(sock)
-
 
             if "HLO" in daide and any(power in daide for power in POWERS):
                 self_power = daide[6:9]
@@ -293,7 +299,17 @@ def main():
                 game.set_orders(POWER_NAMES[order_power], curr_result[order_power])
 
             if "FRM" in daide:
-                pass
+                sender, recipients, msg = process_frm(daide.strip())
+                for rr in recipients:
+                    game.add_message(
+                        Message(
+                            sender=POWER_NAMES[sender],
+                            recipient=POWER_NAMES[rr],
+                            message=msg,
+                            phase=game.get_current_phase(),
+                            time_sent=int(time.time()),
+                        )
+                    )
 
     except KeyboardInterrupt:
         sock.close()
