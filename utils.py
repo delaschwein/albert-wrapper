@@ -553,43 +553,7 @@ def cal_remaining_len(data):
 
 
 def process_now(info: str) -> List[str]:
-    assert "NOW" in info, f"Invalid NOW message: {info}"
-    splitted = info.strip().split(" ")[1:]
-
-    result = []
-    curr = []
-    stack = []
-
-    while len(splitted) > 0:
-        # get the first item in list
-        item = splitted.pop(0)
-
-        if item == ")":
-            # closing bracket
-            if len(stack) == 1 and stack[0] == "(":
-                # add to result
-                result.append(" ".join(curr))
-                # reset
-                curr = []
-                stack = []
-            elif stack[-1] == "(":
-                # inner closing brackets -- costal case
-                stack.pop()
-                curr.append(item)
-            else:
-                stack.append(item)
-        elif item == "(":
-            # inner starting bracket -- costal case
-            if len(stack) > 0:
-                curr.append(item)
-            stack.append(item)
-        else:
-            curr.append(item)
-
-    assert len(stack) == 0, f"Invalid NOW message: {info}"
-    assert len(curr) == 0, f"Invalid NOW message: {info}"
-
-    return result
+    c
 
 
 def process_ord(message: str) -> List[str]:
@@ -683,3 +647,42 @@ def process_mrt(message: str):
     dipnet_retreat_locs = [dipnet_location(loc) for loc in retreat_locs]
 
     return retreat_power, dipnet_u, dipnet_retreat_locs
+
+def process_frm(msg):
+    assert "FRM" in msg, f"Invalid FRM message: {msg}"
+    splitted = msg.strip().split(" ")[1:]
+
+    result = []
+    curr = []
+    stack = []
+
+    while len(splitted) > 0:
+        # get the first item in list
+        item = splitted.pop(0)
+
+        if item == ")":
+            # closing bracket
+            if len(stack) == 1 and stack[0] == "(":
+                # add to result
+                result.append(" ".join(curr))
+                # reset
+                curr = []
+                stack = []
+            elif stack[-1] == "(":
+                # inner closing brackets -- costal case
+                stack.pop()
+                curr.append(item)
+            else:
+                stack.append(item)
+        elif item == "(":
+            # inner starting bracket -- costal case
+            if len(stack) > 0:
+                curr.append(item)
+            stack.append(item)
+        else:
+            curr.append(item)
+
+    assert len(stack) == 0, f"Invalid NOW message: {info}"
+    assert len(curr) == 0, f"Invalid NOW message: {info}"
+
+    return result

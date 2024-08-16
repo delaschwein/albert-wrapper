@@ -292,6 +292,9 @@ def main():
 
                 game.set_orders(POWER_NAMES[order_power], curr_result[order_power])
 
+            if "FRM" in daide:
+                pass
+
     except KeyboardInterrupt:
         sock.close()
 
