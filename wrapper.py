@@ -14,6 +14,7 @@ from utils import (
     process_ord,
     dipnet_unit,
     process_sco,
+    process_mrt,
 )
 
 from diplomacy import Game
@@ -142,6 +143,16 @@ def main():
         print("Orders sent successfully", ords)
         return success
 
+    def send_msg(sock, msg: list[str], recipients: list[str], season, year):
+        full_msg = ["SND", "(", season, year, ")", "("] + recipients + [")", "("] + msg + [")"]
+        full_msg = convert_to_hex(full_msg)
+        len_full_msg = decimal_to_hex(cal_remaining_len(full_msg))
+
+        sock.sendall(bytes.fromhex(DM_PREFIX + len_full_msg + full_msg))
+
+        message_type, rest = read_data(sock)
+        print("Message sent, response:", " ".join(convert(rest)))
+    
     server_address = ("localhost", 16713)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -186,10 +197,13 @@ def main():
             print(daide)
 
             if "MIS" in daide and self_power:
-                # print(game.get_all_possible_orders())
-                # print(game.get_orders())
-                print(game.get_state())
-                pass
+                retreat_power, dipnet_u, dipnet_retreat_locs = process_mrt(daide.strip())
+                game_power = game.get_power(POWER_NAMES[retreat_power])
+                game_power.retreats[dipnet_u] = dipnet_retreat_locs
+                send_not_gof(sock)
+                gen_send_orders(sock)
+                send_gof(sock)
+
 
             if "HLO" in daide and any(power in daide for power in POWERS):
                 self_power = daide[6:9]

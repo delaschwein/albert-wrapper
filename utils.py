@@ -654,3 +654,32 @@ def process_sco(dist):
                 result[curr_p].append(dipnet_location(item))
 
     return result
+
+def process_mrt(message: str):
+    assert "MRT" in message, f"Invalid MRT message: {message}"
+    splitted = message.strip().split(" ")[2:-1]
+        
+    is_coast = splitted[2] == '('
+    
+    if is_coast:
+        unit = splitted[0:6]
+        rest = splitted[6:]
+    else:
+        unit = splitted[0:3]
+        rest = splitted[3:]
+        
+    retreat_power = unit[0]
+    
+    unit = ["("] + unit + [")"]
+        
+    dipnet_u = dipnet_unit(unit)
+    
+    assert rest[0] == 'MRT', f"message {message} does not have MRT"
+    
+    start = rest.index('(') + 1
+    end = rest.index(')')
+    
+    retreat_locs = rest[start:end]
+    dipnet_retreat_locs = [dipnet_location(loc) for loc in retreat_locs]
+
+    return retreat_power, dipnet_u, dipnet_retreat_locs
