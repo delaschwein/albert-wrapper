@@ -31,7 +31,7 @@ LOG = True
 DESIGNATED_ALBERT_POWER_ABBR = "AUS"
 HOSTNAME = "localhost"
 HOST_PORT = 8433
-GAME_ID = "test"
+GAME_ID = "test1"
 IS_ADVISOR = True
 
 
@@ -567,13 +567,13 @@ async def run():
     if IS_ADVISOR:
         credentials = ("admin", "password")
         channel = await connection.authenticate(*credentials)
-        game: NetworkGame = await channel.join_game(game_id="test")
+        game: NetworkGame = await channel.join_game(game_id=GAME_ID)
         advisor = AlbertAdvisor(POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR], game)
     else:
         credentials = (f"cicero_{POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]}", "password")
         channel = await connection.authenticate(*credentials)
         game: NetworkGame = await channel.join_game(
-            game_id="test", power_name=POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
+            game_id=GAME_ID, power_name=POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
         )
         
 
