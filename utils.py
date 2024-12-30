@@ -304,7 +304,7 @@ def dipnet_location(loc: str) -> str:
     return loc
 
 
-def daidefy_location(loc: str) -> str:
+def daidefy_location(loc: str, mto_prov_no_coast: bool = False) -> str:
     """Converts DipNet-style location to DAIDE-style location
 
     E.g.
@@ -318,6 +318,8 @@ def daidefy_location(loc: str) -> str:
     """
     if "/" in loc:
         prov, coast = loc.split("/")
+        if mto_prov_no_coast:
+            return prov
         coast += "S"
         return " ".join(["(", prov, coast, ")"])
     else:
@@ -343,7 +345,7 @@ def dipnet_unit(unit: List[str]):
         return unit_type + " " + loc
 
 
-def daidefy_unit(game: Game, unit: List[str]):
+def daidefy_unit(unit: List[str], game=None, power=None) -> str:
     """Converts DipNet-style unit to DAIDE-style unit
 
     E.g. (for initial game state)
@@ -363,7 +365,11 @@ def daidefy_unit(game: Game, unit: List[str]):
     loc_for_unit_power = (
         loc.split(" ")[1] if " " in loc and len(loc.split(" ")) > 3 else loc
     )
-    pow = get_unit_power(game, loc_for_unit_power)
+
+    if power is None:
+        pow = get_unit_power(game, loc_for_unit_power)
+    else:
+        pow = power
     return " ".join(["(", pow, unit_type, loc, ")"])
 
 
@@ -438,7 +444,7 @@ def dipnet_order(order: str) -> str:
 
 
 def daidefy_order(
-    game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False
+    game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False, mto_prov_no_coast: bool = False
 ) -> str:
     """
     DipNet -> DAIDE order converter.
@@ -450,7 +456,7 @@ def daidefy_order(
     unit_type, loc, *rest = splitted
 
     if len(rest) == 0:
-        return daidefy_unit(game, [unit_type, loc])
+        return daidefy_unit([unit_type, loc], game=game, power=None)
 
     # loc = loc if '/' not in loc else loc.split('/')[0]
     daide_unit_type = "FLT" if unit_type == "F" else "AMY"
@@ -490,7 +496,7 @@ def daidefy_order(
             # MTO
             assert len(rest) == 2, f"MTO order has more than 2 elements: {order}"
             to_loc = rest[1]
-            daide_to_loc = daidefy_location(to_loc)
+            daide_to_loc = daidefy_location(to_loc, mto_prov_no_coast=mto_prov_no_coast)
 
             return daide_primary_unit + " MTO " + daide_to_loc
     else:
@@ -522,7 +528,7 @@ def daidefy_order(
             else:
                 secondary_power = get_unit_power(game, secondary_loc)
 
-            secondary_move = daidefy_order(game, secondary_power, " ".join(rest[1:]))
+            secondary_move = daidefy_order(game, secondary_power, " ".join(rest[1:]), mto_prov_no_coast=True)
             if "S" in rest:
                 if "( " not in secondary_move:
                     secondary_move = "( " + secondary_move + " )"

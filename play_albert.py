@@ -1,6 +1,13 @@
+from concurrent.futures._base import Future
 import socket
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import queue
+from time import sleep
+from scapy.all import sniff, TCP, IP
+
 
 from utils import (
     convert,
@@ -21,12 +28,19 @@ from utils import (
 
 from diplomacy import Game
 from diplomacy import Message
+from diplomacy.client.network_game import NetworkGame
+
+ASSIGNED_ALBERT_POWER = 'AUS' # Albert's power in Paquette game
+POWERS = ["AUS", "ENG", "FRA", "GER", "ITA", "RUS", "TUR"]
+DM_PREFIX = "0200"
+NETWORK_INTERFACE = "\\Device\\NPF_Loopback"
+
 
 game = Game()
-game.add_rule("DONT_SKIP_PHASES")
+#game.add_rule("DONT_SKIP_PHASES")
 
 
-def main():
+def imitator(input_queues: dict[str, list[str]], result_queue):
     def read_data(sock):
         # read message type and remaining length
         data = sock.recv(4)
@@ -38,10 +52,6 @@ def main():
 
         # read remaining data
         rest = sock.recv(remaining_len)
-
-        #with open("log.txt", "a") as f:
-        #    f.write(f"{" ".join(convert(hex_data))} {" ".join(convert(rest.hex()))}\n")
-
         return message_type, rest.hex()
 
     def send_not_gof(sock):
@@ -83,127 +93,50 @@ def main():
                 )
             )
 
-    def get_random_orders():
-        # generate, convert from shorthand to daide, send
-        possible_orders = game.get_all_possible_orders()
-
-        power_orders = [
-            random.choice(possible_orders[loc])
-            for loc in game.get_orderable_locations(POWER_NAMES[self_power])
-            if possible_orders[loc]
-        ]
-        phase = game.phase
-        year = phase.split(" ")[1]
-        season = phase.split(" ")[0][:3]
-        year_hex = decimal_to_hex(int(year))
-
-        daide_orders = []
-
-        for order in power_orders:
-            cvy_loc = []
-
-            if "VIA" in order:
-                without_via = order.split("VIA")[0].strip()
-                cvy_pattern = "C " + without_via
-
-                # getting VIA locations
-                for loc, loc_ords in possible_orders.items():
-                    for loc_ord in loc_ords:
-                        if cvy_pattern in loc_ord:
-                            cvy_loc.append(loc_ord.split(" ")[1])
-                            break
-
-            # determine DSB or REM
-            if game.get_current_phase()[-1] == "R":
-                daide_orders.append(
-                    daidefy_order(game, self_power, order, cvy_loc, True)
-                )
-            else:
-                daide_orders.append(daidefy_order(game, self_power, order, cvy_loc))
-
-        return daide_orders, season, year_hex
-
     def gen_send_orders(sock):
         """
         Generate random orders and send them to the server until success
         """
-        ords, s, y = get_random_orders()
+        # ords, s, y = get_random_orders()
 
-        success = False
+        ords = input_queues[self_power]
 
-        if len(ords) > 0:
-            while not success:
-                ords, s, y = get_random_orders()
-                responses = []
-                send_order(sock, ords)
+        send_order(sock, ords)
 
-                for ii in range(len(ords)):
-                    return_msg_type, return_data = read_data(sock)
-                    response = " ".join(convert(return_data))
-                    responses.append(response)
-                    print("Response", response)
-
-                print("Responses", responses)
-
-                if not any("NSU" in response for response in responses):
-                    success = True
-        print("Orders sent successfully", ords)
-        return success
-
-    def send_msg(sock, msg: list[str], recipients: list[str], season, year):
-        full_msg = (
-            ["SND", "(", season, year, ")", "("] + recipients + [")", "("] + msg + [")"]
-        )
-        full_msg = convert_to_hex(full_msg)
-        len_full_msg = decimal_to_hex(cal_remaining_len(full_msg))
-
-        sock.sendall(bytes.fromhex(DM_PREFIX + len_full_msg + full_msg))
-
-        message_type, rest = read_data(sock)
-        print("Message sent, response:", " ".join(convert(rest)))
+        for ii in range(len(ords)):
+            return_msg_type, return_data = read_data(sock)
+            response = " ".join(convert(return_data))
+            if "NSU" in response:
+                print("Orders not sent successfully", response)
 
     server_address = ("localhost", 16713)
-
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    # Connect to the server
     sock.connect(server_address)
 
     message = "000000040001da10"
-
     nme_msg = "0200001c480c40004b424b6f4b74400140004b764b364b2e4b304b2e4b314001"
-
     mdf_msg = "02f40002480a"
-
     yes_map_standard = (
         "0200001c481c4000480940004b534b544b414b4e4b444b414b524b4440014001"
     )
 
     to_send = [message, nme_msg, mdf_msg, yes_map_standard]
 
-    POWERS = ["AUS", "ENG", "FRA", "GER", "ITA", "RUS", "TUR"]
-
-    DM_PREFIX = "0200"
 
     self_power = None
     curr_result = {}
 
     try:
-        # join game
         for msg in to_send:
-            # convert message to bytes
             msg = bytes.fromhex(msg)
-
             # Send data
             sock.sendall(msg)
-
             return_msg_type, return_data = read_data(sock)
 
         while True:
             return_msg_type, return_data = read_data(sock)
 
             daide = " ".join(convert(return_data))
-            print(daide)
 
             if "MIS" in daide and self_power:
                 retreat_power, dipnet_u, dipnet_retreat_locs = process_mrt(
@@ -217,6 +150,7 @@ def main():
 
             if "HLO" in daide and any(power in daide for power in POWERS):
                 self_power = daide[6:9]
+                result_queue.put(("HLO", self_power))
 
             if return_data == "4810" and daide == "OFF":
                 break
@@ -238,7 +172,6 @@ def main():
                     send_not_gof(sock)
                     gen_send_orders(sock)
                     send_gof(sock)
-                    print("shortcut for retreat phase")
                     continue
 
                 curr_result = {}
@@ -280,6 +213,16 @@ def main():
                     send_not_gof(sock)
                     gen_send_orders(sock)
                     send_gof(sock)
+                    # send some random messages
+                    """ for recipient in POWERS:
+                        if recipient != self_power:
+                            for against in POWERS:
+                                if against != self_power and against != recipient:
+                                    to_send = ["PRP", "(", "ALY", "(", self_power, recipient, ")", "VSS", "(", against, ")", ")"]
+                                    send_msg(sock, to_send, [recipient], season, year_hex)
+                                    pce = ["PRP", "(", "PCE", "(", self_power, recipient, ")", ")"]
+                                    send_msg(sock, pce, [recipient], season, year_hex)
+                                    print("sending", ' '.join(to_send)) """
 
             if "ORD" in daide:
                 order_power = None
@@ -318,6 +261,70 @@ def main():
     except KeyboardInterrupt:
         sock.close()
 
+def six_imitators():
+    """
+        Run 6 imitators to parse Paquette game content to play with Albert
+    """
+    result_queue = queue.Queue()
+    threads = 6
+    input_queues = {}
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        for thread_id in range(threads):
+            executor.submit(imitator, input_queues, result_queue)
+
+        initialized_powers = set()
+        while len(initialized_powers) < threads:
+            try:
+                flag, result = result_queue.get(timeout=1)
+                if flag == "HLO":
+                    initialized_powers.add(result)
+                    input_queues[result] = queue.Queue()
+            except queue.Empty:
+                print("Waiting for all imitators to be assigned power")
+
+
+        existing_powers = list(input_queues.keys())
+        albert_power = [x for x in POWERS if x not in existing_powers][0]
+        print(f"Albert is assigned {albert_power}")
+
+        if albert_power != ASSIGNED_ALBERT_POWER:
+            return False
+        else:
+            # getting albert's moves
+            def packet_callback(packet):
+                if IP in packet and TCP in packet:
+                    if packet[TCP].sport == 16713:
+                        payload = bytes(packet[TCP].payload)
+                        if payload:
+                            content = convert(payload.hex())
+                            if "THX" in content:
+                                content = content[4:-4]
+                                power = content[1]
+
+                                if power == ASSIGNED_ALBERT_POWER:                                
+                                    print(" ".join(content))
+
+            sniff(iface=NETWORK_INTERFACE, filter="tcp and src port 16713", prn=packet_callback, store=False)
+
+
+            current_phase = 'S1901M'
+            while True:
+                # wait for moves on Paquette game
+                for power in existing_powers:
+                    command = "not_gof"
+                    input_queues[power].put(command)
+
+                # get Albert's moves
+
+
+                
+
+
+
+            return True
+
 
 if __name__ == "__main__":
-    main()
+    while not six_imitators():
+        continue

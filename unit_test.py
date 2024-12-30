@@ -3,8 +3,18 @@ from diplomacy import Game
 
 
 def test_daidefy_order():
-    power = "RUS"
+    
     game = Game()
+    power = "FRA"
+
+    game.set_units("FRANCE", ["A MAR"])
+    game.set_units("ENGLAND", ["F MAO"])
+
+    tmp_order = "A MAR S F MAO - SCS"
+
+    print(daidefy_order(game, power, tmp_order))
+
+    power = "RUS"
 
     hlds = {
         "A MOS H": "( RUS AMY MOS ) HLD",
