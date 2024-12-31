@@ -46,18 +46,27 @@ class CiceroAdvisor(CiceroBot):
 
 
 async def run():
-    credentials = ("admin", "password")
+    credentials = ("cicero_AUSTRIA", "password")
     connection = await connect("localhost", 8433, False)
     channel = await connection.authenticate(*credentials)
 
 
-    game: NetworkGame = await channel.join_game(game_id="test1")
+    game: NetworkGame = await channel.join_game(game_id="test1", power_name="AUSTRIA")
+
+    print(game.role)
+
+    await game.send_game_message(message=Message(
+            sender="AUSTRIA",
+            recipient="ENGLAND",
+            message="ehllo",
+            phase="S1901M",
+        ))
 
     #await game.set_orders(orders=["F TRI - ADR"])
     
-    cicero = CiceroAdvisor("AUSTRIA", game)
-    await cicero.declare_suggestion_type()
-    await cicero.suggest_orders(orders=["F TRI - ADR"])
+    #cicero = CiceroAdvisor("AUSTRIA", game)
+    #await cicero.declare_suggestion_type()
+    #await cicero.suggest_orders(orders=["F TRI - ADR"])
     #await cicero.suggest_commentary("AUSTRIA", "I am a bot44")
     print("done")
     exit(0)
