@@ -21,6 +21,7 @@ from abc import ABC
 from typing import List, Sequence
 import os
 from diplomacy.utils.constants import SuggestionType
+from diplomacy import Message
 
 
 # @TODO: implement press
@@ -33,6 +34,7 @@ HOSTNAME = "localhost"
 HOST_PORT = 8433
 GAME_ID = "test1"
 IS_ADVISOR = True
+PRESS = False
 
 
 with open("mapdef.json", "r") as f:
@@ -46,6 +48,7 @@ with open("scs.json", "r") as f:
     NOTE: as long as DM prefix is >= 512 && < 768 it is valid
 """
 
+
 class AlbertBot(BaselineBot, ABC):
     async def gen_orders(self) -> List[str]:
         return []
@@ -58,12 +61,17 @@ class AlbertAdvisor(AlbertBot):
     """Advisor form of `CiceroBot`."""
 
     bot_type = BotType.ADVISOR
-    suggestion_type = SuggestionType.MOVE
+
+    if not PRESS:
+        suggestion_type = SuggestionType.MOVE
+    else:
+        suggestion_type = SuggestionType.MESSAGE_AND_MOVE
 
 
-def tokenize_orders(orders):
+def tokenize(orders):
     """
     convert a list of orders e.g.,["(", "(", "AUS", "AMY", "BUD", ")", "MTO", "VIE", ")"] to a list of lists e.g., [["(", "(", "AUS", "AMY", "BUD", ")", "MTO", "VIE", ")"]]
+        or split powers from press
     """
 
     results = []
@@ -112,14 +120,83 @@ def build_HLO(power):
     """
     @param power: three letter power name
     """
+
+    if not PRESS:
+        lvl = "0000"
+    else:
+        lvl = "1f40"
+
     payload = convert_to_hex(
-        ["HLO", "(", power, ")", "(", "0000", ")", "(", "(", "LVL", "0000", ")", ")"]
+        [
+            "HLO",
+            "(",
+            power,
+            ")",
+            "(",
+            "0000",
+            ")",
+            "(",
+            "(",
+            "LVL",
+            lvl,
+            ")",
+            ")",
+        ]
     )
 
     pooled = hex(526)[2:].zfill(4) + hex(26)[2:].zfill(4) + payload
 
     # client_socket.sendall(bytes.fromhex(pooled))
     return pooled
+
+
+def build_FRM(game, sender, payload: List[str]):
+    current_phase = game.get_phase_data()
+    game_state = GamePhaseData.to_dict(current_phase)
+
+    phase = game_state["name"]
+    daide_phase = None
+    if phase[0] == "S" and phase[-1] == "M":
+        daide_phase = "SPR"
+    elif phase[0] == "S" and phase[-1] == "R":
+        daide_phase = "SUM"
+    elif phase[0] == "F" and phase[-1] == "M":
+        daide_phase = "FAL"
+    elif phase[0] == "F" and phase[-1] == "R":
+        daide_phase = "AUT"
+    elif phase[-1] == "A":
+        daide_phase = "WIN"
+    else:
+        raise ValueError(f"Invalid phase {phase}")
+
+    year = phase[1:5]
+    assert year.isdigit(), f"Year must be a number, but got {year}"
+    year = int(year)
+    hex_year = decimal_to_hex(year)
+
+    frm_prefix = [
+        "FRM",
+        "(",
+        sender,
+        ")",
+        "(",
+        DESIGNATED_ALBERT_POWER_ABBR,
+        ")",
+        "(",
+        daide_phase,
+        hex_year,
+        ")",
+        "(",
+    ]
+
+    # TODO: make sure payload is DAIDE
+    frm_prefix.extend(payload)
+    frm_prefix.append(")")
+
+    frm_hex = convert_to_hex(frm_prefix)
+    length = cal_remaining_len(frm_hex)
+
+    return hex(526)[2:].zfill(4) + decimal_to_hex(length) + frm_hex
 
 
 def build_SCO(game_state):
@@ -418,7 +495,10 @@ async def handle_client(client_socket, client_address, game, advisor=None):
             send_SCO = True
             send_NOW = False
 
+            messages_sent = []
+
             while True:
+                # try to read data from client socket
                 try:
                     message_type, data = await asyncio.wait_for(
                         read_data(loop, client_socket), timeout=5
@@ -428,16 +508,13 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                         converted = convert(data)
                         payload = " ".join(converted)
 
-                        if "GOF" in payload or "DRW" in payload:
+                        if "GOF" in payload or "DRW" in payload or "SND" in payload:
                             yes_response_prefix = convert_to_hex(["YES", "("])
                             yes_response_suffix = convert_to_hex([")"])
 
-                            remaining_len = 0
-
-                            if "NOT" in payload:
-                                remaining_len = hex(14)[2:].zfill(4)
-                            else:
-                                remaining_len = hex(8)[2:].zfill(4)
+                            remaining_len = cal_remaining_len(
+                                yes_response_prefix + data + yes_response_suffix
+                            )
 
                             pooled = (
                                 hex(526)[2:].zfill(4)
@@ -457,13 +534,49 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                                         f"s -> c: {" ".join(convert(yes_response_prefix + data + yes_response_suffix))}\n"
                                     )
 
+                            if "SND" in payload:
+                                assert PRESS, "Press is not enabled"
+
+                                # TODO: advise or submit press to Paquette
+                                if any(
+                                    x in converted
+                                    for x in ["WIN", "AUT", "SUM", "SPR", "FAL"]
+                                ):
+                                    msg = converted[5:]
+                                else:
+                                    msg = converted[1:]
+
+                                msg = tokenize(msg)
+                                assert len(msg) == 2, f"Msg should contain recipient and message, but got {msg}"
+                                recipients = msg[0][1:-1] # removes parentheses
+                                message = msg[1][1:-1] # removes parentheses
+
+                                # TODO: convert DAIDE to NL
+
+                                for recipient in recipients:
+                                    if IS_ADVISOR and advisor:
+                                        await advisor.suggest_message(POWER_NAMES[recipient], message)
+                                    else:
+                                        await game.add_message(
+                                            Message(
+                                                sender=POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR],
+                                                recipient=POWER_NAMES[recipient],
+                                                message=message,
+                                                phase=current_phase,
+                                            )
+                                        )
+
+
                         elif "SUB" in payload:
                             to_submit = []
-                            if any(x in converted for x in ["WIN", "AUT", "SUM", "SPR", "FAL"]):
+                            if any(
+                                x in converted
+                                for x in ["WIN", "AUT", "SUM", "SPR", "FAL"]
+                            ):
                                 orders = converted[5:]
                             else:
                                 orders = converted[1:]
-                            orders = tokenize_orders(orders)
+                            orders = tokenize(orders)
 
                             response_prefix = convert_to_hex(["THX", "("])
                             response_suffix = convert_to_hex([")", "(", "MBV", ")"])
@@ -496,18 +609,16 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                                 dipnet_o = dipnet_order(parsed)
                                 to_submit.append(dipnet_o)
 
-                            
                             if IS_ADVISOR and advisor:
-                                await advisor.declare_suggestion_type()
                                 await advisor.suggest_orders(to_submit)
 
                             else:
                                 print(f"Submitting orders: {to_submit}")
                                 await game.set_orders(orders=to_submit)
 
-
                             # game.process()
 
+                # if no data is received, send game info to socket
                 except asyncio.TimeoutError:
                     if game.status == "completed":
                         print("Game completed")
@@ -521,6 +632,10 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                     if current_phase != game_state["name"]:
                         current_phase = game_state["name"]
                         print(f"Advance to {current_phase}")
+
+                        # send advisor suggestion type to game engine
+                        if advisor:
+                            await advisor.declare_suggestion_type()
 
                         # if current_phase[1:5] != current_year:
                         #    current_year = current_phase[1:5]
@@ -549,7 +664,25 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                             with open("log.txt", "a") as f:
                                 f.write(f"s -> c: {" ".join(convert(now))}\n")
                         send_NOW = False
-                asyncio.sleep(1)
+
+                    # update messages to Albert
+                    to_albert = [
+                        x
+                        for x in game_state["messages"]
+                        if x["time_sent"] not in messages_sent
+                        and x["recipient"] == POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
+                    ]
+                    messages_sent.extend([x["time_sent"] for x in to_albert])
+
+                    for message in to_albert:
+                        message_payload = message["message"]
+                        sender = message["sender"]
+                        sender = POWERS_ABBRS[sender]
+                        payload = message_payload.split(" ")
+                        frm = build_FRM(game, sender, payload)
+                        await loop.sock_sendall(client_socket, bytes.fromhex(frm))
+
+                await asyncio.sleep(1)
 
     except Exception as e:
         print(f"Error with client {client_address}: {e}")
@@ -561,8 +694,6 @@ async def handle_client(client_socket, client_address, game, advisor=None):
 async def run():
     # Paquette
     connection = await connect(HOSTNAME, HOST_PORT, False)
-    
-    
 
     if IS_ADVISOR:
         credentials = ("admin", "password")
@@ -570,12 +701,14 @@ async def run():
         game: NetworkGame = await channel.join_game(game_id=GAME_ID)
         advisor = AlbertAdvisor(POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR], game)
     else:
-        credentials = (f"cicero_{POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]}", "password")
+        credentials = (
+            f"cicero_{POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]}",
+            "password",
+        )
         channel = await connection.authenticate(*credentials)
         game: NetworkGame = await channel.join_game(
             game_id=GAME_ID, power_name=POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
         )
-        
 
     # websocket
     server_host = "0.0.0.0"  # Listen on all available interfaces
@@ -633,9 +766,7 @@ async def handle_socket_client(client_socket, client_address, game, advisor=None
         # You can now integrate this with your existing game logic
         print(f"Handling client {client_address}")
         if advisor:
-            await handle_client(
-                client_socket, client_address, game, advisor
-            )
+            await handle_client(client_socket, client_address, game, advisor)
         else:
             await handle_client(
                 client_socket, client_address, game
