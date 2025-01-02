@@ -22,6 +22,7 @@ import os
 from diplomacy.utils.constants import SuggestionType
 from diplomacy import Message
 import traceback
+import random
 
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
@@ -30,9 +31,9 @@ DESIGNATED_ALBERT_POWER_ABBR = "AUS"
 HOSTNAME = "localhost"
 HOST_PORT = 8433
 GAME_ID = "test1"
-IS_ADVISOR = True
-PRESS = True
-
+IS_ADVISOR = False
+PRESS = False
+NUM_ALBERTS = 1
 
 with open("mapdef.json", "r") as f:
     MAPDEF = json.load(f)
@@ -143,7 +144,6 @@ def build_HLO(power):
 
     pooled = hex(526)[2:].zfill(4) + hex(26)[2:].zfill(4) + payload
 
-    # client_socket.sendall(bytes.fromhex(pooled))
     return pooled
 
 
@@ -379,317 +379,324 @@ def build_MRT(game):
     return results
 
 
+async def send_response(client_socket, loop, response):
+    await loop.sock_sendall(
+        client_socket,
+        response if isinstance(response, bytes) else bytes.fromhex(response),
+    )
+
+
+async def handle_game_active(client_socket, loop, game):
+    while game.status != "active":
+        await asyncio.sleep(1)
+
+    print("Game is active")
+    hlo_msg = build_HLO(DESIGNATED_ALBERT_POWER_ABBR)
+
+    if LOG:
+        with open("log.txt", "a") as f:
+            f.write(f"s -> c: {" ".join(convert(hlo_msg))}\n")
+
+    await send_response(client_socket, loop, hlo_msg)
+
+
+async def handle_game_completion(game):
+    print("Game completed")
+    game_state = GamePhaseData.to_dict(game.get_phase_data())
+    with open(f"{game_state['name']}.json", "w") as f:
+        json.dump(game_state, f)
+
+
+def create_da10_response():
+    return bytes.fromhex(hex(256)[2:].zfill(4) + hex(0)[2:].zfill(4))
+
+
+async def handle_initialization(client_socket, loop):
+    initialization_done = False
+
+    while not initialization_done:
+        message_type, data = await read_data(loop, client_socket)
+        # data = client_socket.recv(1024)
+        if data:
+            payload = " ".join(convert(data))
+
+            if "da10" in payload:
+                response = create_da10_response()
+                if LOG:
+                    with open("log.txt", "a") as f:
+                        f.write(f"s -> c: {" ".join(convert(response.hex()))}\n")
+
+                await send_response(client_socket, loop, response)
+
+            elif "NME" in payload:
+                yes_response_prefix = convert_to_hex(["YES", "("])
+                yes_response_suffix = convert_to_hex([")"])
+
+                remaining_len = cal_remaining_len(
+                    yes_response_prefix + data + yes_response_suffix
+                )
+
+                pooled = (
+                    hex(524)[2:].zfill(4)
+                    + decimal_to_hex(remaining_len)
+                    + yes_response_prefix
+                    + data
+                    + yes_response_suffix
+                )
+
+                if LOG:
+                    with open("log.txt", "a") as f:
+                        f.write(
+                            f"s -> c: {" ".join(convert(yes_response_prefix + data + yes_response_suffix))}\n"
+                        )
+                await send_response(client_socket, loop, pooled)
+
+                # send map definitions
+                map_def_prefix = convert_to_hex(["MAP", "("])
+                map_name = "STANDARD"
+                map_name_hex = [hex(19200 + ord(x))[2:].zfill(4) for x in map_name]
+                map_def_suffix = convert_to_hex([")"])
+
+                pooled = (
+                    hex(589)[2:].zfill(4)
+                    + hex(22)[2:].zfill(4)
+                    + map_def_prefix
+                    + "".join(map_name_hex)
+                    + map_def_suffix
+                )
+
+                if LOG:
+                    with open("log.txt", "a") as f:
+                        f.write(
+                            f"s -> c: {" ".join(convert(map_def_prefix + "".join(map_name_hex) + map_def_suffix))}...\n"
+                        )
+
+                await send_response(client_socket, loop, pooled)
+            elif "MDF" in payload:
+                prefix = hex(525)[2:].zfill(4) + hex(2562)[2:].zfill(4)
+                map_definition = MAPDEF
+                map_def_hex = convert_to_hex(map_definition)
+
+                if LOG:
+                    with open("log.txt", "a") as f:
+                        f.write("s -> c: MDF...\n")
+
+                await send_response(client_socket, loop, prefix + map_def_hex)
+
+                initialization_done = True
+
+
 async def handle_client(client_socket, client_address, game, advisor=None):
     print(f"Connection established with {client_address}")
     client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     print(f"SO_KEEPALIVE set for {client_address}")
     loop = asyncio.get_running_loop()
 
-    initialization_done = False
-    game_active = False
     current_phase = None
 
     # Handle client interaction
     try:
-        while not initialization_done:
-            message_type, data = await read_data(loop, client_socket)
-            # data = client_socket.recv(1024)
-            if data:
-                payload = " ".join(convert(data))
+        await handle_initialization(client_socket, loop)  # wait for Albert ready
+        await handle_game_active(
+            client_socket, loop, game
+        )  # wait for Paquette game ready
 
-                if "da10" in payload:
-                    response = hex(256)[2:].zfill(4) + hex(0)[2:].zfill(4)
-                    response = bytes.fromhex(response)
-                    if LOG:
-                        with open("log.txt", "a") as f:
-                            f.write(f"s -> c: {" ".join(convert(response.hex()))}\n")
+        print("Initialization done, proceeding to game after 3 seconds")
+        await asyncio.sleep(3)
+        send_SCO = True
+        send_NOW = False
 
-                    await loop.sock_sendall(client_socket, response)
+        messages_sent = []
 
-                elif "NME" in payload:
-                    yes_response_prefix = convert_to_hex(["YES", "("])
-                    yes_response_suffix = convert_to_hex([")"])
+        while True:
+            # try to read data from client socket
+            try:
+                message_type, data = await asyncio.wait_for(
+                    read_data(loop, client_socket), timeout=5
+                )
 
-                    remaining_len = cal_remaining_len(
-                        yes_response_prefix + data + yes_response_suffix
-                    )
+                if data:
+                    converted = convert(data)
+                    payload = " ".join(converted)
 
-                    pooled = (
-                        hex(524)[2:].zfill(4)
-                        + decimal_to_hex(remaining_len)
-                        + yes_response_prefix
-                        + data
-                        + yes_response_suffix
-                    )
+                    if "GOF" in payload or "DRW" in payload or "SND" in payload:
+                        yes_response_prefix = convert_to_hex(["YES", "("])
+                        yes_response_suffix = convert_to_hex([")"])
 
-                    if LOG:
-                        with open("log.txt", "a") as f:
-                            f.write(
-                                f"s -> c: {" ".join(convert(yes_response_prefix + data + yes_response_suffix))}\n"
-                            )
-                    await loop.sock_sendall(client_socket, bytes.fromhex(pooled))
+                        remaining_len = cal_remaining_len(
+                            yes_response_prefix + data + yes_response_suffix
+                        )
 
-                    # send map definitions
-                    map_def_prefix = convert_to_hex(["MAP", "("])
-                    map_name = "STANDARD"
-                    map_name_hex = [hex(19200 + ord(x))[2:].zfill(4) for x in map_name]
-                    map_def_suffix = convert_to_hex([")"])
+                        pooled = (
+                            hex(526)[2:].zfill(4)
+                            + decimal_to_hex(remaining_len)
+                            + yes_response_prefix
+                            + data
+                            + yes_response_suffix
+                        )
 
-                    pooled = (
-                        hex(589)[2:].zfill(4)
-                        + hex(22)[2:].zfill(4)
-                        + map_def_prefix
-                        + "".join(map_name_hex)
-                        + map_def_suffix
-                    )
+                        if LOG:
+                            with open("log.txt", "a") as f:
+                                f.write(
+                                    f"s -> c: {" ".join(convert(yes_response_prefix + data + yes_response_suffix))}\n"
+                                )
 
-                    if LOG:
-                        with open("log.txt", "a") as f:
-                            f.write(
-                                f"s -> c: {" ".join(convert(map_def_prefix + "".join(map_name_hex) + map_def_suffix))}...\n"
-                            )
+                        await send_response(client_socket, loop, pooled)
 
-                    await loop.sock_sendall(client_socket, bytes.fromhex(pooled))
-                elif "MDF" in payload:
-                    prefix = hex(525)[2:].zfill(4) + hex(2562)[2:].zfill(4)
-                    map_definition = MAPDEF
-                    map_def_hex = convert_to_hex(map_definition)
+                        if "SND" in payload:
+                            assert PRESS, "Press is not enabled"
 
-                    if LOG:
-                        with open("log.txt", "a") as f:
-                            f.write("s -> c: MDF...\n")
-
-                    await loop.sock_sendall(
-                        client_socket, bytes.fromhex(prefix + map_def_hex)
-                    )
-
-                    initialization_done = True
-                    break
-
-        while not game_active:
-            if game.status == "active":
-                game_active = True
-                break
-
-            await asyncio.sleep(1)
-
-        print("Game is active")
-        hlo_msg = build_HLO(DESIGNATED_ALBERT_POWER_ABBR)
-        if LOG:
-            with open("log.txt", "a") as f:
-                f.write(f"s -> c: {" ".join(convert(hlo_msg))}\n")
-
-        await loop.sock_sendall(client_socket, bytes.fromhex(hlo_msg))
-
-        if initialization_done:
-            print("Initialization done, proceeding to game after 3 seconds")
-            await asyncio.sleep(3)
-            send_SCO = True
-            send_NOW = False
-
-            messages_sent = []
-
-            while True:
-                # try to read data from client socket
-                try:
-                    message_type, data = await asyncio.wait_for(
-                        read_data(loop, client_socket), timeout=5
-                    )
-
-                    if data:
-                        converted = convert(data)
-                        payload = " ".join(converted)
-
-                        if "GOF" in payload or "DRW" in payload or "SND" in payload:
-                            yes_response_prefix = convert_to_hex(["YES", "("])
-                            yes_response_suffix = convert_to_hex([")"])
-
-                            remaining_len = cal_remaining_len(
-                                yes_response_prefix + data + yes_response_suffix
-                            )
-
-                            pooled = (
-                                hex(526)[2:].zfill(4)
-                                + decimal_to_hex(remaining_len)
-                                + yes_response_prefix
-                                + data
-                                + yes_response_suffix
-                            )
-
-                            if LOG:
-                                with open("log.txt", "a") as f:
-                                    f.write(
-                                        f"s -> c: {" ".join(convert(yes_response_prefix + data + yes_response_suffix))}\n"
-                                    )
-
-                            await loop.sock_sendall(
-                                client_socket, bytes.fromhex(pooled)
-                            )
-
-                            if "SND" in payload:
-                                assert PRESS, "Press is not enabled"
-
-                                if any(
-                                    x in converted
-                                    for x in ["WIN", "AUT", "SUM", "SPR", "FAL"]
-                                ):
-                                    msg = converted[5:]
-                                else:
-                                    msg = converted[1:]
-
-                                msg = tokenize(msg)
-                                assert (
-                                    len(msg) == 2
-                                ), f"Msg should contain recipient and message, but got {msg}"
-                                recipients = msg[0][1:-1]  # removes parentheses
-                                message = msg[1][1:-1]  # removes parentheses
-                                message = " ".join(message)
-                                # TODO: convert DAIDE to NL
-
-                                for recipient in recipients:
-                                    if IS_ADVISOR and advisor:
-                                        await advisor.suggest_message(
-                                            POWER_NAMES[recipient], message
-                                        )
-                                    else:
-                                        await game.send_game_message(
-                                            message=Message(
-                                                sender=POWER_NAMES[
-                                                    DESIGNATED_ALBERT_POWER_ABBR
-                                                ],
-                                                recipient=POWER_NAMES[recipient],
-                                                message=message,
-                                                phase=current_phase,
-                                            )
-                                        )
-
-                        elif "SUB" in payload:
-                            to_submit = []
                             if any(
                                 x in converted
                                 for x in ["WIN", "AUT", "SUM", "SPR", "FAL"]
                             ):
-                                orders = converted[5:]
+                                msg = converted[5:]
                             else:
-                                orders = converted[1:]
-                            orders = tokenize(orders)
+                                msg = converted[1:]
 
-                            response_prefix = convert_to_hex(["THX", "("])
-                            response_suffix = convert_to_hex([")", "(", "MBV", ")"])
+                            msg = tokenize(msg)
+                            assert (
+                                len(msg) == 2
+                            ), f"Msg should contain recipient and message, but got {msg}"
+                            recipients = msg[0][1:-1]  # removes parentheses
+                            message = msg[1][1:-1]  # removes parentheses
+                            message = " ".join(message)
+                            # TODO: convert DAIDE to NL
 
-                            for order in orders:
-                                response = (
-                                    response_prefix
-                                    + convert_to_hex(order)
-                                    + response_suffix
-                                )
-                                remaining_len = cal_remaining_len(response)
-
-                                pooled = (
-                                    hex(598)[2:].zfill(4)
-                                    + decimal_to_hex(remaining_len)
-                                    + response
-                                )
-
-                                if LOG:
-                                    with open("log.txt", "a") as f:
-                                        f.write(
-                                            f"s -> c: {" ".join(convert(response))}\n"
+                            for recipient in recipients:
+                                if IS_ADVISOR and advisor:
+                                    await advisor.suggest_message(
+                                        POWER_NAMES[recipient], message
+                                    )
+                                else:
+                                    await game.send_game_message(
+                                        message=Message(
+                                            sender=POWER_NAMES[
+                                                DESIGNATED_ALBERT_POWER_ABBR
+                                            ],
+                                            recipient=POWER_NAMES[recipient],
+                                            message=message,
+                                            phase=current_phase,
                                         )
+                                    )
 
-                                await loop.sock_sendall(
-                                    client_socket, bytes.fromhex(pooled)
-                                )
+                    elif "SUB" in payload:
+                        to_submit = []
+                        if any(
+                            x in converted for x in ["WIN", "AUT", "SUM", "SPR", "FAL"]
+                        ):
+                            orders = converted[5:]
+                        else:
+                            orders = converted[1:]
+                        orders = tokenize(orders)
 
-                                parsed = " ".join(order[1:-1])  # remove parentheses
-                                dipnet_o = dipnet_order(parsed)
-                                to_submit.append(dipnet_o)
+                        response_prefix = convert_to_hex(["THX", "("])
+                        response_suffix = convert_to_hex([")", "(", "MBV", ")"])
 
-                            if IS_ADVISOR and advisor:
-                                pass
-                                # await advisor.suggest_orders(to_submit)
-
-                            else:
-                                print(f"Submitting orders: {to_submit}")
-                                await game.set_orders(orders=to_submit)
-
-                            # game.process()
-
-                # if no data is received, send game info to socket
-                except asyncio.TimeoutError:
-                    if game.status == "completed":
-                        print("Game completed")
-                        with open(
-                            f"{GamePhaseData.to_dict(game.get_phase_data())['name']}.json",
-                            "w",
-                        ) as f:
-                            f.write(
-                                json.dumps(GamePhaseData.to_dict(game.get_phase_data()))
+                        for order in orders:
+                            response = (
+                                response_prefix
+                                + convert_to_hex(order)
+                                + response_suffix
                             )
-                        exit(0)
+                            remaining_len = cal_remaining_len(response)
 
-                    paquette_game = game.get_phase_data()
-                    game_state = GamePhaseData.to_dict(paquette_game)
+                            pooled = (
+                                hex(598)[2:].zfill(4)
+                                + decimal_to_hex(remaining_len)
+                                + response
+                            )
 
-                    # send SCO on new year, and ORD/NOW on new phase
-                    if current_phase != game_state["name"]:
-                        current_phase = game_state["name"]
-                        print(f"Advance to {current_phase}")
-
-                        # send advisor suggestion type to game engine
-                        if IS_ADVISOR and advisor:
-                            await advisor.declare_suggestion_type()
-
-                        # if current_phase[1:5] != current_year:
-                        #    current_year = current_phase[1:5]
-
-                        if current_phase.endswith("A"):
-                            send_SCO = True
-                        send_NOW = True
-
-                    if send_SCO:
-                        sco = build_SCO(game_state)
-                        if LOG:
-                            with open("log.txt", "a") as f:
-                                f.write(f"s -> c: {" ".join(convert(sco))}\n")
-
-                        await loop.sock_sendall(client_socket, bytes.fromhex(sco))
-                        send_SCO = False
-
-                    if send_NOW:
-                        ords, now = build_NOW(game)
-                        for oo in ords:
                             if LOG:
                                 with open("log.txt", "a") as f:
-                                    f.write(f"s -> c: {" ".join(convert(oo))}\n")
-                            await loop.sock_sendall(client_socket, bytes.fromhex(oo))
+                                    f.write(f"s -> c: {" ".join(convert(response))}\n")
 
+                            await send_response(client_socket, loop, pooled)
+
+                            parsed = " ".join(order[1:-1])  # remove parentheses
+                            dipnet_o = dipnet_order(parsed)
+                            to_submit.append(dipnet_o)
+
+                        if IS_ADVISOR and advisor:
+                            pass
+                            # await advisor.suggest_orders(to_submit)
+
+                        else:
+                            print(f"Submitting orders: {to_submit}")
+                            await game.set_orders(orders=to_submit)
+
+                        # game.process()
+
+            # if no data is received, send game info to socket
+            except asyncio.TimeoutError:
+                paquette_game = game.get_phase_data()
+                game_state = GamePhaseData.to_dict(paquette_game)
+
+                if game_state["name"] == "COMPLETED" or game.status == "completed":
+                    handle_game_completion(game)
+                    exit(0)
+
+                # send SCO on new year, and ORD/NOW on new phase
+                if current_phase != game_state["name"]:
+                    current_phase = game_state["name"]
+                    print(f"Advance to {current_phase}")
+
+                    # check if game completed
+                    if game_state["name"] == "COMPLETED":
+                        handle_game_completion(game)
+                        exit(0)
+
+                    # send advisor suggestion type to game engine
+                    if IS_ADVISOR and advisor:
+                        await advisor.declare_suggestion_type()
+
+                    if current_phase.endswith("A"):
+                        send_SCO = True
+                    send_NOW = True
+
+                if send_SCO:
+                    sco = build_SCO(game_state)
+                    if LOG:
+                        with open("log.txt", "a") as f:
+                            f.write(f"s -> c: {" ".join(convert(sco))}\n")
+
+                    await send_response(client_socket, loop, sco)
+                    send_SCO = False
+
+                if send_NOW:
+                    ords, now = build_NOW(game)
+                    for oo in ords:
                         if LOG:
                             with open("log.txt", "a") as f:
-                                f.write(f"s -> c: {" ".join(convert(now))}\n")
+                                f.write(f"s -> c: {" ".join(convert(oo))}\n")
+                        await send_response(client_socket, loop, oo)
 
-                        await loop.sock_sendall(client_socket, bytes.fromhex(now))
+                    if LOG:
+                        with open("log.txt", "a") as f:
+                            f.write(f"s -> c: {" ".join(convert(now))}\n")
 
-                        send_NOW = False
+                    await send_response(client_socket, loop, now)
 
-                    # update messages to Albert
-                    to_albert = [
-                        x
-                        for x in game_state["messages"]
-                        if x["time_sent"] not in messages_sent
-                        and x["recipient"] == POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
-                    ]
-                    messages_sent.extend([x["time_sent"] for x in to_albert])
+                    send_NOW = False
 
-                    for message in to_albert:
-                        message_payload = message["message"]
-                        sender = message["sender"]
-                        sender = POWERS_ABBRS[sender]
-                        payload = message_payload.split(" ")
-                        frm = build_FRM(game, sender, payload)
-                        await loop.sock_sendall(client_socket, bytes.fromhex(frm))
+                # update messages to Albert
+                to_albert = [
+                    x
+                    for x in game_state["messages"]
+                    if x["time_sent"] not in messages_sent
+                    and x["recipient"] == POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
+                ]
+                messages_sent.extend([x["time_sent"] for x in to_albert])
 
-                await asyncio.sleep(1)
+                for message in to_albert:
+                    message_payload = message["message"]
+                    sender = message["sender"]
+                    sender = POWERS_ABBRS[sender]
+                    payload = message_payload.split(" ")
+                    frm = build_FRM(game, sender, payload)
+                    await send_response(client_socket, loop, frm)
+
+            await asyncio.sleep(1)
 
     except Exception as e:
         print(f"Error with client {client_address}: {e}")
@@ -724,7 +731,7 @@ async def run():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((server_host, server_port))
-    server_socket.listen(7)  # Allow up to 5 queued connections
+    server_socket.listen(7)  # Allow up to 7 queued connections
     print(f"Server listening on {server_host}:{server_port}")
 
     # server_socket.setblocking(False)
@@ -744,17 +751,11 @@ async def run():
                     handle_socket_client(client_socket, client_address, game, advisor),
                     task_name=f"Handle client {client_address}",
                 )
-                """ await asyncio.create_task(
-                    handle_socket_client(client_socket, client_address, game, advisor)
-                ) """
             else:
                 create_task_with_exception_handling(
                     handle_socket_client(client_socket, client_address, game),
                     task_name=f"Handle client {client_address}",
                 )
-                """ await asyncio.create_task(
-                    handle_socket_client(client_socket, client_address, game)
-                ) """
     except KeyboardInterrupt:
         print("Server shutting down...")
     finally:
@@ -763,21 +764,20 @@ async def run():
 
 async def handle_socket_client(client_socket, client_address, game, advisor=None):
     try:
-        # You can now integrate this with your existing game logic
         print(f"Handling client {client_address}")
         if advisor:
             await handle_client(client_socket, client_address, game, advisor)
         else:
-            await handle_client(
-                client_socket, client_address, game
-            )  # Assuming it handles socket interaction
+            await handle_client(client_socket, client_address, game)
     finally:
         client_socket.close()
+
 
 def create_task_with_exception_handling(coro, task_name="Unnamed Task"):
     """
     Wraps asyncio.create_task to add exception handling.
     """
+
     async def task_wrapper():
         try:
             await coro
@@ -786,6 +786,7 @@ def create_task_with_exception_handling(coro, task_name="Unnamed Task"):
             traceback.print_exc()
 
     return asyncio.create_task(task_wrapper(), name=task_name)
+
 
 def handle_global_exceptions(loop, context):
     """
