@@ -11,7 +11,6 @@ from utils import (
 )
 import socket
 import json
-from time import sleep
 from diplomacy.utils.game_phase_data import GamePhaseData
 from diplomacy.client.network_game import NetworkGame
 from diplomacy.client.connection import connect
@@ -22,9 +21,7 @@ from typing import List, Sequence
 import os
 from diplomacy.utils.constants import SuggestionType
 from diplomacy import Message
-
-
-# @TODO: implement press
+import traceback
 
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
@@ -474,7 +471,7 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                 game_active = True
                 break
 
-            sleep(1)
+            await asyncio.sleep(1)
 
         print("Game is active")
         hlo_msg = build_HLO(DESIGNATED_ALBERT_POWER_ABBR)
@@ -609,7 +606,8 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                                 to_submit.append(dipnet_o)
 
                             if IS_ADVISOR and advisor:
-                                await advisor.suggest_orders(to_submit)
+                                pass
+                                # await advisor.suggest_orders(to_submit)
 
                             else:
                                 print(f"Submitting orders: {to_submit}")
@@ -621,8 +619,13 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                 except asyncio.TimeoutError:
                     if game.status == "completed":
                         print("Game completed")
-                        with open(f"{GamePhaseData.to_dict(game.get_phase_data())['name']}.json", "w") as f:
-                            f.write(json.dumps(GamePhaseData.to_dict(game.get_phase_data())))
+                        with open(
+                            f"{GamePhaseData.to_dict(game.get_phase_data())['name']}.json",
+                            "w",
+                        ) as f:
+                            f.write(
+                                json.dumps(GamePhaseData.to_dict(game.get_phase_data()))
+                            )
                         exit(0)
 
                     paquette_game = game.get_phase_data()
@@ -721,11 +724,12 @@ async def run():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((server_host, server_port))
-    server_socket.listen(5)  # Allow up to 5 queued connections
+    server_socket.listen(7)  # Allow up to 5 queued connections
     print(f"Server listening on {server_host}:{server_port}")
 
     # server_socket.setblocking(False)
     loop = asyncio.get_running_loop()
+    loop.set_exception_handler(handle_global_exceptions)
 
     try:
         while True:
@@ -736,13 +740,21 @@ async def run():
             print(f"New connection from {client_address}")
             # Handle the client in an async function
             if IS_ADVISOR:
-                await asyncio.create_task(
+                create_task_with_exception_handling(
+                    handle_socket_client(client_socket, client_address, game, advisor),
+                    task_name=f"Handle client {client_address}",
+                )
+                """ await asyncio.create_task(
                     handle_socket_client(client_socket, client_address, game, advisor)
-                )
+                ) """
             else:
-                await asyncio.create_task(
-                    handle_socket_client(client_socket, client_address, game)
+                create_task_with_exception_handling(
+                    handle_socket_client(client_socket, client_address, game),
+                    task_name=f"Handle client {client_address}",
                 )
+                """ await asyncio.create_task(
+                    handle_socket_client(client_socket, client_address, game)
+                ) """
     except KeyboardInterrupt:
         print("Server shutting down...")
     finally:
@@ -761,6 +773,27 @@ async def handle_socket_client(client_socket, client_address, game, advisor=None
             )  # Assuming it handles socket interaction
     finally:
         client_socket.close()
+
+def create_task_with_exception_handling(coro, task_name="Unnamed Task"):
+    """
+    Wraps asyncio.create_task to add exception handling.
+    """
+    async def task_wrapper():
+        try:
+            await coro
+        except Exception as e:
+            print(f"Exception in {task_name}: {e}")
+            traceback.print_exc()
+
+    return asyncio.create_task(task_wrapper(), name=task_name)
+
+def handle_global_exceptions(loop, context):
+    """
+    Handles exceptions caught by the event loop.
+    """
+    msg = context.get("exception", context["message"])
+    print(f"Caught global exception: {msg}")
+    traceback.print_exc()
 
 
 if __name__ == "__main__":
