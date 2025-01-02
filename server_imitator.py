@@ -27,13 +27,14 @@ import random
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
 LOG = True
-DESIGNATED_ALBERT_POWER_ABBR = "AUS"
 HOSTNAME = "localhost"
 HOST_PORT = 8433
 GAME_ID = "test1"
 IS_ADVISOR = False
 PRESS = False
-NUM_ALBERTS = 1
+NUM_ALBERTS = 7
+DESIGNATED_ALBERT_POWER_ABBRS = list(POWER_NAMES.values())
+POWERS = random.sample(DESIGNATED_ALBERT_POWER_ABBRS, NUM_ALBERTS)
 
 with open("mapdef.json", "r") as f:
     MAPDEF = json.load(f)
@@ -147,7 +148,7 @@ def build_HLO(power):
     return pooled
 
 
-def build_FRM(game, sender, payload: List[str]):
+def build_FRM(game, power_abbr, sender, payload: List[str]):
     current_phase = game.get_phase_data()
     game_state = GamePhaseData.to_dict(current_phase)
 
@@ -177,7 +178,7 @@ def build_FRM(game, sender, payload: List[str]):
         sender,
         ")",
         "(",
-        DESIGNATED_ALBERT_POWER_ABBR,
+        power_abbr,
         ")",
         "(",
         daide_phase,
@@ -228,7 +229,7 @@ def build_SCO(game_state):
     return hex(526)[2:].zfill(4) + decimal_to_hex(length) + sco_hex
 
 
-def build_NOW(game):
+def build_NOW(game, power_abbr):
     """
     return a tuple of (ORDs, NOW) to be sent to albert
     """
@@ -236,7 +237,7 @@ def build_NOW(game):
     current_phase = game.get_phase_data()
     game_state = GamePhaseData.to_dict(current_phase)
 
-    orders = build_ORD(game)
+    orders = build_ORD(game, power_abbr)
     ords = []
 
     phase = game_state["name"]
@@ -309,14 +310,14 @@ def build_NOW(game):
     return (ords, hex(526)[2:].zfill(4) + decimal_to_hex(length) + now_hex)
 
 
-def build_ORD(game):
+def build_ORD(game, power_abbr):
     current_phase = game.get_phase_data()
     game_state = GamePhaseData.to_dict(current_phase)
 
-    albert_orders = game_state["orders"][POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]]
+    albert_orders = game_state["orders"][POWER_NAMES[power_abbr]]
     results = game_state["results"]
     albert_units = game_state["state"]["units"][
-        POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
+        POWER_NAMES[power_abbr]
     ]
 
     outputs = []
@@ -346,7 +347,7 @@ def build_ORD(game):
                 f"Order not found for unit {unit}, orders: {albert_orders}"
             )
         daide_order = daidefy_order(
-            game, POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR], order[0]
+            game, POWER_NAMES[power_abbr], order[0]
         )
 
         outputs.append((daide_order, result_type))
@@ -386,12 +387,12 @@ async def send_response(client_socket, loop, response):
     )
 
 
-async def handle_game_active(client_socket, loop, game):
+async def handle_game_active(client_socket, power_abbr, loop, game):
     while game.status != "active":
         await asyncio.sleep(1)
 
     print("Game is active")
-    hlo_msg = build_HLO(DESIGNATED_ALBERT_POWER_ABBR)
+    hlo_msg = build_HLO(power_abbr)
 
     if LOG:
         with open("log.txt", "a") as f:
@@ -486,7 +487,25 @@ async def handle_initialization(client_socket, loop):
                 initialization_done = True
 
 
-async def handle_client(client_socket, client_address, game, advisor=None):
+async def handle_client(client_socket, client_address, power):
+    # connect to paquette
+    connection = await connect(HOSTNAME, HOST_PORT, False)
+
+    if IS_ADVISOR:
+        credentials = ("admin", "password")
+        channel = await connection.authenticate(*credentials)
+        game: NetworkGame = await channel.join_game(game_id=GAME_ID)
+        advisor = AlbertAdvisor(power, game)
+    else:
+        credentials = (
+            f"cicero_{power}",
+            "password",
+        )
+        channel = await connection.authenticate(*credentials)
+        game: NetworkGame = await channel.join_game(
+            game_id=GAME_ID, power_name=power
+        )
+
     print(f"Connection established with {client_address}")
     client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     print(f"SO_KEEPALIVE set for {client_address}")
@@ -498,7 +517,7 @@ async def handle_client(client_socket, client_address, game, advisor=None):
     try:
         await handle_initialization(client_socket, loop)  # wait for Albert ready
         await handle_game_active(
-            client_socket, loop, game
+            client_socket, POWERS_ABBRS[power], loop, game
         )  # wait for Paquette game ready
 
         print("Initialization done, proceeding to game after 3 seconds")
@@ -571,9 +590,7 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                                 else:
                                     await game.send_game_message(
                                         message=Message(
-                                            sender=POWER_NAMES[
-                                                DESIGNATED_ALBERT_POWER_ABBR
-                                            ],
+                                            sender=power,
                                             recipient=POWER_NAMES[recipient],
                                             message=message,
                                             phase=current_phase,
@@ -664,7 +681,7 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                     send_SCO = False
 
                 if send_NOW:
-                    ords, now = build_NOW(game)
+                    ords, now = build_NOW(game, POWERS_ABBRS[power])
                     for oo in ords:
                         if LOG:
                             with open("log.txt", "a") as f:
@@ -684,7 +701,7 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                     x
                     for x in game_state["messages"]
                     if x["time_sent"] not in messages_sent
-                    and x["recipient"] == POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
+                    and x["recipient"] == power
                 ]
                 messages_sent.extend([x["time_sent"] for x in to_albert])
 
@@ -693,7 +710,7 @@ async def handle_client(client_socket, client_address, game, advisor=None):
                     sender = message["sender"]
                     sender = POWERS_ABBRS[sender]
                     payload = message_payload.split(" ")
-                    frm = build_FRM(game, sender, payload)
+                    frm = build_FRM(game, POWERS_ABBRS[power], sender, payload)
                     await send_response(client_socket, loop, frm)
 
             await asyncio.sleep(1)
@@ -706,24 +723,6 @@ async def handle_client(client_socket, client_address, game, advisor=None):
 
 
 async def run():
-    # Paquette
-    connection = await connect(HOSTNAME, HOST_PORT, False)
-
-    if IS_ADVISOR:
-        credentials = ("admin", "password")
-        channel = await connection.authenticate(*credentials)
-        game: NetworkGame = await channel.join_game(game_id=GAME_ID)
-        advisor = AlbertAdvisor(POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR], game)
-    else:
-        credentials = (
-            f"cicero_{POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]}",
-            "password",
-        )
-        channel = await connection.authenticate(*credentials)
-        game: NetworkGame = await channel.join_game(
-            game_id=GAME_ID, power_name=POWER_NAMES[DESIGNATED_ALBERT_POWER_ABBR]
-        )
-
     # websocket
     server_host = "0.0.0.0"  # Listen on all available interfaces
     server_port = 16713
@@ -731,7 +730,7 @@ async def run():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((server_host, server_port))
-    server_socket.listen(7)  # Allow up to 7 queued connections
+    server_socket.listen(NUM_ALBERTS)  # Allow up to 7 queued connections
     print(f"Server listening on {server_host}:{server_port}")
 
     # server_socket.setblocking(False)
@@ -744,31 +743,24 @@ async def run():
             client_socket, client_address = await loop.run_in_executor(
                 None, server_socket.accept
             )
-            print(f"New connection from {client_address}")
+            power_to_use = POWERS.pop()
+            print(f"New connection from {client_address}, using power {power_to_use}")
             # Handle the client in an async function
-            if IS_ADVISOR:
-                create_task_with_exception_handling(
-                    handle_socket_client(client_socket, client_address, game, advisor),
-                    task_name=f"Handle client {client_address}",
-                )
-            else:
-                create_task_with_exception_handling(
-                    handle_socket_client(client_socket, client_address, game),
-                    task_name=f"Handle client {client_address}",
-                )
+            create_task_with_exception_handling(
+                handle_socket_client(client_socket, client_address, power_to_use),
+                task_name=f"Handle client {client_address}",
+            )
     except KeyboardInterrupt:
         print("Server shutting down...")
     finally:
         server_socket.close()
 
 
-async def handle_socket_client(client_socket, client_address, game, advisor=None):
+async def handle_socket_client(client_socket, client_address, power):
     try:
         print(f"Handling client {client_address}")
-        if advisor:
-            await handle_client(client_socket, client_address, game, advisor)
-        else:
-            await handle_client(client_socket, client_address, game)
+        await handle_client(client_socket, client_address, power)
+
     finally:
         client_socket.close()
 
