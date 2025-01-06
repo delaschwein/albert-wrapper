@@ -23,18 +23,26 @@ from diplomacy.utils.constants import SuggestionType
 from diplomacy import Message
 import traceback
 import random
+from daide2eng.utils import gen_English
+import tomllib
 
+with open("config.toml", "rb") as f:
+    config = tomllib.load(f)
+
+PRESS = config["albert"]["press"]
+NUM_ALBERTS = config["albert"]["num_alberts"]
+LOG = config["logging"]["log"]
+HOSTNAME = config["paquette"]["hostname"]
+PORT = config["paquette"]["port"]
+IS_ADVISOR = config["albert"]["is_advisor"]
+GAME_ID = config["paquette"]["game_id"]
+USE_NL = config["albert"]["use_nl"]
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
-LOG = True
-HOSTNAME = "localhost"
-HOST_PORT = 8433
-GAME_ID = "test1"
-IS_ADVISOR = False
-PRESS = False
-NUM_ALBERTS = 7
 DESIGNATED_ALBERT_POWER_ABBRS = list(POWER_NAMES.values())
-POWERS = random.sample(DESIGNATED_ALBERT_POWER_ABBRS, NUM_ALBERTS)
+POWERS = random.sample(DESIGNATED_ALBERT_POWER_ABBRS, k=NUM_ALBERTS)
+
+
 
 with open("mapdef.json", "r") as f:
     MAPDEF = json.load(f)
@@ -316,9 +324,7 @@ def build_ORD(game, power_abbr):
 
     albert_orders = game_state["orders"][POWER_NAMES[power_abbr]]
     results = game_state["results"]
-    albert_units = game_state["state"]["units"][
-        POWER_NAMES[power_abbr]
-    ]
+    albert_units = game_state["state"]["units"][POWER_NAMES[power_abbr]]
 
     outputs = []
 
@@ -346,9 +352,7 @@ def build_ORD(game, power_abbr):
             raise ValueError(
                 f"Order not found for unit {unit}, orders: {albert_orders}"
             )
-        daide_order = daidefy_order(
-            game, POWER_NAMES[power_abbr], order[0]
-        )
+        daide_order = daidefy_order(game, POWER_NAMES[power_abbr], order[0])
 
         outputs.append((daide_order, result_type))
 
@@ -489,12 +493,14 @@ async def handle_initialization(client_socket, loop):
 
 async def handle_client(client_socket, client_address, power):
     # connect to paquette
-    connection = await connect(HOSTNAME, HOST_PORT, False)
+    connection = await connect(HOSTNAME, PORT, False)
 
     if IS_ADVISOR:
         credentials = ("admin", "password")
         channel = await connection.authenticate(*credentials)
-        game: NetworkGame = await channel.join_game(game_id=GAME_ID)
+        game: NetworkGame = await channel.join_game(
+            game_id=GAME_ID
+        )
         advisor = AlbertAdvisor(power, game)
     else:
         credentials = (
@@ -580,7 +586,9 @@ async def handle_client(client_socket, client_address, power):
                             recipients = msg[0][1:-1]  # removes parentheses
                             message = msg[1][1:-1]  # removes parentheses
                             message = " ".join(message)
-                            # TODO: convert DAIDE to NL
+
+                            if USE_NL:
+                                message = gen_English(message)
 
                             for recipient in recipients:
                                 if IS_ADVISOR and advisor:
@@ -700,8 +708,7 @@ async def handle_client(client_socket, client_address, power):
                 to_albert = [
                     x
                     for x in game_state["messages"]
-                    if x["time_sent"] not in messages_sent
-                    and x["recipient"] == power
+                    if x["time_sent"] not in messages_sent and x["recipient"] == power
                 ]
                 messages_sent.extend([x["time_sent"] for x in to_albert])
 
@@ -711,7 +718,9 @@ async def handle_client(client_socket, client_address, power):
                     sender = POWERS_ABBRS[sender]
                     payload = message_payload.split(" ")
                     frm = build_FRM(game, POWERS_ABBRS[power], sender, payload)
-                    await send_response(client_socket, loop, frm)
+
+                    # TODO: check if is daide
+                    # await send_response(client_socket, loop, frm)
 
             await asyncio.sleep(1)
 

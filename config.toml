@@ -1,0 +1,14 @@
+[logging]
+log = true
+
+[paquette]
+hostname = "localhost"
+port = 8433
+game_id = "test1"
+
+
+[albert]
+is_advisor = false
+press = true
+num_alberts = 7
+use_nl = true
