@@ -596,14 +596,18 @@ async def handle_client(client_socket, client_address, power):
                                         POWER_NAMES[recipient], message
                                     )
                                 else:
-                                    await game.send_game_message(
-                                        message=Message(
-                                            sender=power,
-                                            recipient=POWER_NAMES[recipient],
-                                            message=message,
-                                            phase=current_phase,
+                                    try:
+                                        await game.send_game_message(
+                                            message=Message(
+                                                sender=power,
+                                                recipient=POWER_NAMES[recipient],
+                                                message=message,
+                                                phase=current_phase,
+                                            )
                                         )
-                                    )
+                                    except Exception as e:
+                                        # TODO: handle error
+                                        print(f"Error sending message: {e}")
 
                     elif "SUB" in payload:
                         to_submit = []
