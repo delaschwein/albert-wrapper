@@ -1,8 +1,6 @@
 from diplomacy import Game
 from typing import List
 
-# convert 4B to ascii
-
 HEX2DAIDE = {
     "4000": "(",
     "4001": ")",
@@ -230,7 +228,7 @@ POWER_NAMES = {
     "GER": "GERMANY",
     "ITA": "ITALY",
     "RUS": "RUSSIA",
-    "TUR": "TURKEY"
+    "TUR": "TURKEY",
 }
 
 DIPNET2DAIDE_LOC = {
@@ -243,7 +241,8 @@ DAIDE2DIPNET_LOC = {v: k for k, v in DIPNET2DAIDE_LOC.items()}
 
 
 def split_by_two_characters(s):
-    return [s[i:i+2] for i in range(0, len(s), 2)]
+    return [s[i : i + 2] for i in range(0, len(s), 2)]
+
 
 def convert(payload):
     octets = split_by_two_characters(payload)
@@ -267,7 +266,7 @@ def convert(payload):
         curr.append(item)
 
         if len(curr) == 2:
-            out.append(''.join(curr))
+            out.append("".join(curr))
             curr = []
 
     result = []
@@ -276,7 +275,7 @@ def convert(payload):
         if x[:2].upper() == "4B":
             decimal = int(x[2:], 16)
             result.append(chr(decimal))
-        
+
         else:
             if x.upper() in HEX2DAIDE:
                 result.append(HEX2DAIDE[x.upper()])
@@ -287,23 +286,25 @@ def convert(payload):
 
 
 def convert_to_hex(message):
-    return ''.join([DAIDE2HEX.get(c, c) for c in message]).lower()
+    return "".join([DAIDE2HEX.get(c, c) for c in message]).lower()
 
 
 def dipnet_location(loc: str) -> str:
-    if ' ' in loc:
-        loc = loc.replace('(', '').replace(')', '').strip()
-        prov, coast = loc.split(' ')
+    # coasts
+    if " " in loc:
+        loc = loc.replace("(", "").replace(")", "").strip()
+        prov, coast = loc.split(" ")
         prov = prov.strip()
         coast = coast.strip()
-        return '/'.join([prov, coast[:-1]])
+        return "/".join([prov, coast[:-1]])
     else:
         if loc in DAIDE2DIPNET_LOC:
             return DAIDE2DIPNET_LOC[loc]
 
     return loc
 
-def daidefy_location(loc: str) -> str:
+
+def daidefy_location(loc: str, mto_prov_no_coast: bool = False) -> str:
     """Converts DipNet-style location to DAIDE-style location
 
     E.g.
@@ -315,32 +316,36 @@ def daidefy_location(loc: str) -> str:
     :param loc: DipNet-style province notation
     :return: DAIDE-style loc
     """
-    if '/' in loc:
-        prov, coast = loc.split('/')
+    if "/" in loc:
+        prov, coast = loc.split("/")
+        if mto_prov_no_coast:
+            return prov
         coast += "S"
-        return ' '.join(['(', prov, coast, ')'])
+        return " ".join(["(", prov, coast, ")"])
     else:
         if loc in DIPNET2DAIDE_LOC:
             return DIPNET2DAIDE_LOC[loc]
 
     return loc
 
+
 def dipnet_unit(unit: List[str]):
     assert len(unit) == 5 or len(unit) == 8
     if len(unit) == 5:
-        # non coastal
+        # non coasts
         unit = unit[2:4]
         unit_type = unit[0][0]
         loc = dipnet_location(unit[1])
-        return unit_type + ' ' + loc
+        return unit_type + " " + loc
     else:
-        # coastal
+        # coasts
         unit = unit[2:7]
         unit_type = unit[0][0]
-        loc = dipnet_location(' '.join(unit[2:4]))
-        return unit_type + ' ' + loc
+        loc = dipnet_location(" ".join(unit[2:4]))
+        return unit_type + " " + loc
 
-def daidefy_unit(game: Game, unit: List[str]):
+
+def daidefy_unit(unit: List[str], game=None, power=None) -> str:
     """Converts DipNet-style unit to DAIDE-style unit
 
     E.g. (for initial game state)
@@ -357,30 +362,42 @@ def daidefy_unit(game: Game, unit: List[str]):
     assert len(unit) == 2
     unit_type = "FLT" if unit[0] == "F" else "AMY"
     loc = daidefy_location(unit[1])
-    if len(loc) > 3:
-        loc = loc[:3]
-    pow = get_unit_power(game, loc)
-    return ' '.join(['(', pow, unit_type, loc, ')'])
+    loc_for_unit_power = (
+        loc.split(" ")[1] if " " in loc and len(loc.split(" ")) > 3 else loc
+    )
+
+    if power is None:
+        pow = get_unit_power(game, loc_for_unit_power)
+    else:
+        pow = power
+    return " ".join(["(", pow, unit_type, loc, ")"])
+
 
 def get_unit_power(game: Game, unit: str) -> str:
-    print('get_unit_power:', unit)
+    """
+    Determine the controller of a unit based on the location
+    """
+    loc = dipnet_location(unit)
     loc_dict = game.get_orderable_locations()
-    print('get_unit_power:', loc_dict)
     for pp, locs in loc_dict.items():
-        if unit in locs:
-            #print('get_unit_power:', pp)
+        if loc in locs:
             return pp[:3]
+
 
 def decimal_to_hex(decimal):
     return hex(decimal)[2:].zfill(4)
 
+
 def dipnet_order(order: str) -> str:
-    splitted = order.split(' ')
+    """
+    DAIDE -> DipNet order converter.
+    """
+    splitted = order.split(" ")
 
-    if len(splitted) == 2 and splitted[1] == 'WVE':
-        return 'WAIVE'
+    if len(splitted) == 2 and splitted[1] == "WVE":
+        return "WAIVE"
 
-    is_coastal = splitted[3] == '('
+    is_coastal = splitted[3] == "("
 
     if is_coastal:
         unit = splitted[0:8]
@@ -391,147 +408,159 @@ def dipnet_order(order: str) -> str:
 
     dipnet_u = dipnet_unit(unit)
 
-    if len(rest) == 1:
+    if len(rest) == 0:
+        return dipnet_u
+
+    elif len(rest) == 1:
         # HLD/BLD/DSB/REM
-        if rest[0] == 'REM':
-            return dipnet_u + ' D'
+        if rest[0] == "REM":
+            return dipnet_u + " D"
         else:
-            return dipnet_u + ' ' + rest[0][0]
+            return dipnet_u + " " + rest[0][0]
     elif len(rest) == 2:
         # MTO/RTO
-        if rest[0] == 'RTO':
-            return dipnet_u + ' R ' + dipnet_location(rest[1])
+        if rest[0] == "RTO":
+            return dipnet_u + " R " + dipnet_location(rest[1])
         else:
-            return dipnet_u + ' - ' + dipnet_location(rest[1])
+            return dipnet_u + " - " + dipnet_location(rest[1])
     else:
         move_type = rest[0]
-        if move_type == 'CTO':
-            return dipnet_u + ' - ' + dipnet_location(rest[1]) + ' VIA'
-        elif move_type == 'CVY':
+        if move_type == "CTO":
+            return dipnet_u + " - " + dipnet_location(rest[1]) + " VIA"
+        elif move_type == "CVY":
             cvy_unit = dipnet_unit(rest[1:6])
             cto_loc = dipnet_location(rest[7])
-            return dipnet_u + ' C ' + cvy_unit + ' - ' + cto_loc
-        elif move_type == 'MTO' or move_type == 'RTO':
+            return dipnet_u + " C " + cvy_unit + " - " + cto_loc
+        elif move_type == "MTO" or move_type == "RTO":
             # MTO/RTO coastal
-            secondary_loc = dipnet_location(' '.join(rest[1:]))
-            if move_type == 'MTO':
-                return dipnet_u + ' - ' + secondary_loc
+            secondary_loc = dipnet_location(" ".join(rest[1:]))
+            if move_type == "MTO":
+                return dipnet_u + " - " + secondary_loc
             else:
-                return dipnet_u + ' R ' + secondary_loc
+                return dipnet_u + " R " + secondary_loc
         else:
-            len_sup = len(rest)
-            if len_sup == 6:
-                sup_unit = dipnet_unit(rest[1:])
-                return dipnet_u + ' S ' + sup_unit + ' H'
-            elif len_sup == 8:
-                sub_order = dipnet_order(' '.join(rest[1:]))
-                return dipnet_u + ' S ' + sub_order
-            else:
-                raise ValueError(f"Invalid sup order: {order}")
-
-    raise ValueError(f"Invalid order: {order}")
+            sub_order = dipnet_order(" ".join(rest[1:]))
+            return dipnet_u + " S " + sub_order
 
 
-def daidefy_order(game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False) -> str:
-    print('daidefy_order:', order)
+def daidefy_order(
+    game: Game, power: str, order: str, via_locs: list = [], dsb: bool = False, mto_prov_no_coast: bool = False
+) -> str:
+    """
+    DipNet -> DAIDE order converter.
+    """
+    if order == "WAIVE":
+        return power + " WVE"
 
-    if order == 'WAIVE':
-        return power + ' WVE'
-
-    splitted = order.split(' ')
+    splitted = order.split(" ")
     unit_type, loc, *rest = splitted
 
     if len(rest) == 0:
-        return daidefy_unit(game, [unit_type, loc])
+        return daidefy_unit([unit_type, loc], game=game, power=None)
 
-    #loc = loc if '/' not in loc else loc.split('/')[0]
-    daide_unit_type = 'FLT' if unit_type == 'F' else 'AMY'
+    # loc = loc if '/' not in loc else loc.split('/')[0]
+    daide_unit_type = "FLT" if unit_type == "F" else "AMY"
     daide_loc = daidefy_location(loc)
-    if ' ' in daide_loc:
-        primary_unit_power = get_unit_power(game, daide_loc.split(' ')[1])
+    if " " in daide_loc:
+        primary_unit_power = get_unit_power(game, daide_loc.split(" ")[1])
     else:
         primary_unit_power = get_unit_power(game, daide_loc)
-    assert primary_unit_power == power, f"Power mismatch: {power} != {primary_unit_power}"
+    assert (
+        primary_unit_power == power
+    ), f"Power mismatch: {power} != {primary_unit_power}"
 
-    daide_primary_unit = ' '.join(['(', primary_unit_power, daide_unit_type, daide_loc, ')'])
+    daide_primary_unit = " ".join(
+        ["(", primary_unit_power, daide_unit_type, daide_loc, ")"]
+    )
 
-    if rest[0] == '-':
+    if rest[0] == "-":
         # either MTO or CTO
-        if 'VIA' in rest:
+        if "VIA" in rest:
             # CTO
             assert len(rest) == 3, f"CTO order has more than 3 elements: {order}"
             to_loc = rest[1]
 
             daide_to_loc = daidefy_location(to_loc)
 
-            return daide_primary_unit + ' CTO ' + daide_to_loc + ' VIA ' + '( ' + ' '.join(via_locs) + ' )'
+            return (
+                daide_primary_unit
+                + " CTO "
+                + daide_to_loc
+                + " VIA "
+                + "( "
+                + " ".join(via_locs)
+                + " )"
+            )
 
         else:
             # MTO
             assert len(rest) == 2, f"MTO order has more than 2 elements: {order}"
             to_loc = rest[1]
-            daide_to_loc = daidefy_location(to_loc)
+            daide_to_loc = daidefy_location(to_loc, mto_prov_no_coast=mto_prov_no_coast)
 
-            return daide_primary_unit + ' MTO ' + daide_to_loc
+            return daide_primary_unit + " MTO " + daide_to_loc
     else:
-        if 'R' in rest:
+        if "R" in rest:
             # RTO
             assert len(rest) == 2, f"RTO order has more than 2 elements: {order}"
             to_loc = rest[1]
             daide_to_loc = daidefy_location(to_loc)
 
-            return daide_primary_unit + ' RTO ' + daide_to_loc
-        elif 'B' in rest:
+            return daide_primary_unit + " RTO " + daide_to_loc
+        elif "B" in rest:
             # BLD
             assert len(rest) == 1, f"BLD order has more than 1 element: {order}"
-            return daide_primary_unit + ' BLD'
-        elif 'D' in rest:
+            return daide_primary_unit + " BLD"
+        elif "D" in rest:
             # DSB or REM
             assert len(rest) == 1, f"DSB/REM order has more than 1 element: {order}"
             if dsb:
-                return daide_primary_unit + ' DSB'
+                return daide_primary_unit + " DSB"
             else:
-                return daide_primary_unit + ' REM'
-        elif 'S' in rest or 'C' in rest:
+                return daide_primary_unit + " REM"
+        elif "S" in rest or "C" in rest:
             # SUP/CVY
             assert len(rest) > 2, f"SUP/CVY order has less than 3 elements: {order}"
             secondary_loc = rest[2]
 
-            if '/' in secondary_loc:
-                secondary_power = get_unit_power(game, secondary_loc.split('/')[0])
+            if "/" in secondary_loc:
+                secondary_power = get_unit_power(game, secondary_loc.split("/")[0])
             else:
                 secondary_power = get_unit_power(game, secondary_loc)
 
-            secondary_move = daidefy_order(game, secondary_power, ' '.join(rest[1:]))
-            if 'S' in rest:
-                if '( ' not in secondary_move:
-                    secondary_move = '( ' + secondary_move + ' )'
-                result = daide_primary_unit + ' SUP ' + secondary_move
+            secondary_move = daidefy_order(game, secondary_power, " ".join(rest[1:]), mto_prov_no_coast=True)
+            if "S" in rest:
+                if "( " not in secondary_move:
+                    secondary_move = "( " + secondary_move + " )"
+                result = daide_primary_unit + " SUP " + secondary_move
 
-                if 'H' in rest:
-                    return result.replace(' HLD', '')
+                if "H" in rest:
+                    return result.replace(" HLD", "")
 
                 return result
             else:
-                assert 'C' in rest, f"CVY order has no 'C' element: {order}"
+                assert "C" in rest, f"CVY order has no 'C' element: {order}"
 
-                result = daide_primary_unit + ' CVY ' + secondary_move
-                return result.replace('MTO', 'CTO')
+                result = daide_primary_unit + " CVY " + secondary_move
+                return result.replace("MTO", "CTO")
 
-        elif 'H' in rest:
+        elif "H" in rest:
             # HLD
             assert len(rest) == 1, f"HLD order has more than 1 element: {order}"
-            return daide_primary_unit + ' HLD'
+            return daide_primary_unit + " HLD"
+
 
 def hex_to_decimal(hex):
     return int(hex, 16)
 
+
 def cal_remaining_len(data):
     return len(data) // 2
 
+
 def process_now(info: str) -> List[str]:
-    assert 'NOW' in info, f"Invalid NOW message: {info}"
-    splitted = info.strip().split(' ')[1:]
+    assert "NOW" in info, f"Invalid NOW message: {info}"
+    splitted = info.strip().split(" ")[1:]
 
     result = []
     curr = []
@@ -540,22 +569,22 @@ def process_now(info: str) -> List[str]:
     while len(splitted) > 0:
         # get the first item in list
         item = splitted.pop(0)
-        
-        if item == ')':
+
+        if item == ")":
             # closing bracket
-            if len(stack) == 1 and stack[0] == '(':
+            if len(stack) == 1 and stack[0] == "(":
                 # add to result
-                result.append(' '.join(curr))
+                result.append(" ".join(curr))
                 # reset
                 curr = []
                 stack = []
-            elif stack[-1] == '(':
+            elif stack[-1] == "(":
                 # inner closing brackets -- costal case
                 stack.pop()
                 curr.append(item)
             else:
                 stack.append(item)
-        elif item == '(':
+        elif item == "(":
             # inner starting bracket -- costal case
             if len(stack) > 0:
                 curr.append(item)
@@ -568,9 +597,10 @@ def process_now(info: str) -> List[str]:
 
     return result
 
+
 def process_ord(message: str) -> List[str]:
-    assert 'ORD' in message, f"Invalid ORD message: {message}"
-    splitted = message.strip().split(' ')[1:]
+    assert "ORD" in message, f"Invalid ORD message: {message}"
+    splitted = message.strip().split(" ")[1:]
 
     result = []
     curr = []
@@ -579,22 +609,22 @@ def process_ord(message: str) -> List[str]:
     while len(splitted) > 0:
         # get the first item in list
         item = splitted.pop(0)
-        
-        if item == ')':
+
+        if item == ")":
             # closing bracket
-            if len(stack) == 1 and stack[0] == '(':
+            if len(stack) == 1 and stack[0] == "(":
                 # add to result
-                result.append(' '.join(curr))
+                result.append(" ".join(curr))
                 # reset
                 curr = []
                 stack = []
-            elif stack[-1] == '(':
+            elif stack[-1] == "(":
                 # inner closing brackets -- costal case
                 stack.pop()
                 curr.append(item)
             else:
                 stack.append(item)
-        elif item == '(':
+        elif item == "(":
             # inner starting bracket -- costal case
             if len(stack) > 0:
                 curr.append(item)
@@ -606,3 +636,97 @@ def process_ord(message: str) -> List[str]:
     assert len(curr) == 0, f"Invalid NOW message: {message}"
 
     return result
+
+
+def process_sco(dist):
+    assert "SCO" in dist, f"Invalid SCO message: {dist}"
+    splitted = dist.strip().split(" ")[1:]
+    result = {}
+    curr_p = None
+
+    for item in splitted:
+        if item == ")":
+            continue
+        elif item == "(":
+            continue
+        elif item == "UNO":
+            return result
+        else:
+            if item in POWER_NAMES.keys():
+                if POWER_NAMES[item] not in result:
+                    result[POWER_NAMES[item]] = []
+                curr_p = POWER_NAMES[item]
+            else:
+                result[curr_p].append(dipnet_location(item))
+
+    return result
+
+def process_mrt(message: str):
+    assert "MRT" in message, f"Invalid MRT message: {message}"
+    splitted = message.strip().split(" ")[2:-1]
+        
+    is_coast = splitted[2] == '('
+    
+    if is_coast:
+        unit = splitted[0:6]
+        rest = splitted[6:]
+    else:
+        unit = splitted[0:3]
+        rest = splitted[3:]
+        
+    retreat_power = unit[0]
+    
+    unit = ["("] + unit + [")"]
+        
+    dipnet_u = dipnet_unit(unit)
+    
+    assert rest[0] == 'MRT', f"message {message} does not have MRT"
+    
+    start = rest.index('(') + 1
+    end = rest.index(')')
+    
+    retreat_locs = rest[start:end]
+    dipnet_retreat_locs = [dipnet_location(loc) for loc in retreat_locs]
+
+    return retreat_power, dipnet_u, dipnet_retreat_locs
+
+def process_frm(msg):
+    assert "FRM" in msg, f"Invalid FRM message: {msg}"
+    splitted = msg.strip().split(" ")[1:]
+
+    result = []
+    curr = []
+    stack = []
+
+    while len(splitted) > 0:
+        # get the first item in list
+        item = splitted.pop(0)
+
+        if item == ")":
+            # closing bracket
+            if len(stack) == 1 and stack[0] == "(":
+                # add to result
+                result.append(" ".join(curr))
+                # reset
+                curr = []
+                stack = []
+            elif stack[-1] == "(":
+                # inner closing brackets -- costal case
+                stack.pop()
+                curr.append(item)
+            else:
+                stack.append(item)
+        elif item == "(":
+            # inner starting bracket -- costal case
+            if len(stack) > 0:
+                curr.append(item)
+            stack.append(item)
+        else:
+            curr.append(item)
+
+    assert len(stack) == 0, f"Invalid NOW message: {msg}"
+    assert len(curr) == 0, f"Invalid NOW message: {msg}"
+    assert len(result) == 3, f"Invalid FRM message: {msg}"
+    splitted = result[1].split(" ")
+
+    return result[0], splitted, result[2]

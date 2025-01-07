@@ -1,9 +1,20 @@
 from wrapper import daidefy_order, dipnet_order
 from diplomacy import Game
 
+
 def test_daidefy_order():
-    power = "RUS"
+    
     game = Game()
+    power = "FRA"
+
+    game.set_units("FRANCE", ["A MAR"])
+    game.set_units("ENGLAND", ["F MAO"])
+
+    tmp_order = "A MAR S F MAO - SCS"
+
+    print(daidefy_order(game, power, tmp_order))
+
+    power = "RUS"
 
     hlds = {
         "A MOS H": "( RUS AMY MOS ) HLD",
@@ -34,7 +45,7 @@ def test_daidefy_order():
 
     sup_mto = {
         "F STP/SC S A MOS - LVN": "( RUS FLT ( STP SCS ) ) SUP ( RUS AMY MOS ) MTO LVN",
-        #"F LON S A LVP - WAL": "( ENG FLT LON ) SUP ( ENG AMY LVP ) MTO WAL",
+        # "F LON S A LVP - WAL": "( ENG FLT LON ) SUP ( ENG AMY LVP ) MTO WAL",
     }
 
     for order, expected in sup_mto.items():
@@ -47,7 +58,7 @@ def test_daidefy_order():
         "F NTH C A YOR - HOL": "( ENG FLT NTH ) CVY ( ENG AMY YOR ) CTO HOL",
         "F NTH C A YOR - BEL": "( ENG FLT NTH ) CVY ( ENG AMY YOR ) CTO BEL",
     }
-    game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
+    game.set_orders("ENGLAND", ["A LVP - YOR", "F EDI - NTH", "F LON - ENG"])
 
     game.process()
 
@@ -56,7 +67,7 @@ def test_daidefy_order():
         assert result == expected
 
     game = Game()
-    game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
+    game.set_orders("ENGLAND", ["A LVP - YOR", "F EDI - NTH", "F LON - ENG"])
 
     game.process()
 
@@ -70,9 +81,9 @@ def test_daidefy_order():
         assert result == expected
 
     game = Game()
-    game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
+    game.set_orders("ENGLAND", ["A LVP - YOR", "F EDI - NTH", "F LON - ENG"])
     game.process()
-    game.set_orders("ENGLAND", ['F NTH C YOR - HOL', 'A YOR - HOL VIA', 'F ENG H'])
+    game.set_orders("ENGLAND", ["F NTH C YOR - HOL", "A YOR - HOL VIA", "F ENG H"])
     game.process()
 
     bld = {
@@ -84,15 +95,15 @@ def test_daidefy_order():
         assert result == expected
 
     game = Game()
-    game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
+    game.set_orders("ENGLAND", ["A LVP - YOR", "F EDI - NTH", "F LON - ENG"])
     game.process()
-    game.set_orders("ENGLAND", ['F NTH C YOR - HOL', 'A YOR - HOL VIA', 'F ENG H'])
+    game.set_orders("ENGLAND", ["F NTH C YOR - HOL", "A YOR - HOL VIA", "F ENG H"])
     game.process()
-    game.set_orders("ENGLAND", ['A LVP B'])
+    game.set_orders("ENGLAND", ["A LVP B"])
     game.process()
-    game.set_orders("GERMANY", ['A MUN - RUH'])
+    game.set_orders("GERMANY", ["A MUN - RUH"])
     game.process()
-    game.set_orders("GERMANY", ['F KIE S A RUH - HOL', 'A RUH - HOL'])
+    game.set_orders("GERMANY", ["F KIE S A RUH - HOL", "A RUH - HOL"])
     game.process()
 
     rto = {
@@ -112,25 +123,25 @@ def test_daidefy_order():
         assert result == expected
 
     game = Game()
-    game.set_orders("ENGLAND", ['A LVP - YOR', 'F EDI - NTH', 'F LON - ENG'])
+    game.set_orders("ENGLAND", ["A LVP - YOR", "F EDI - NTH", "F LON - ENG"])
     game.process()
-    game.set_orders("ENGLAND", ['F NTH C YOR - HOL', 'A YOR - HOL VIA', 'F ENG H'])
+    game.set_orders("ENGLAND", ["F NTH C YOR - HOL", "A YOR - HOL VIA", "F ENG H"])
     game.process()
-    game.set_orders("ENGLAND", ['A LVP B'])
+    game.set_orders("ENGLAND", ["A LVP B"])
     game.process()
-    game.set_orders("GERMANY", ['A MUN - RUH'])
+    game.set_orders("GERMANY", ["A MUN - RUH"])
     game.process()
-    game.set_orders("GERMANY", ['F KIE S A RUH - HOL', 'A RUH - HOL'])
+    game.set_orders("GERMANY", ["F KIE S A RUH - HOL", "A RUH - HOL"])
     game.process()
-    game.set_orders("ENGLAND", ['A HOL R BEL'])
+    game.set_orders("ENGLAND", ["A HOL R BEL"])
     game.process()
-    game.set_orders("GERMANY", ['A MUN B'])
+    game.set_orders("GERMANY", ["A MUN B"])
     game.process()
-    game.set_orders("GERMANY", ['A MUN - RUH'])
+    game.set_orders("GERMANY", ["A MUN - RUH"])
     game.process()
-    game.set_orders("GERMANY", ['A RUH S A HOL - BEL', 'A HOL - BEL'])
+    game.set_orders("GERMANY", ["A RUH S A HOL - BEL", "A HOL - BEL"])
     game.process()
-    game.set_orders("ENGLAND", ['A BEL R PIC'])
+    game.set_orders("ENGLAND", ["A BEL R PIC"])
     game.process()
 
     rem = {
@@ -153,8 +164,8 @@ def test_dipnet_order():
         "F STP/SC - FIN": "( RUS FLT ( STP SCS ) ) MTO FIN",
     }
     sup_hld = {
-        "F STP/SC S A MOS H": "( RUS FLT ( STP SCS ) ) SUP ( RUS AMY MOS )",
-        "A LVP S F EDI H": "( ENG AMY LVP ) SUP ( ENG FLT EDI )",
+        "F STP/SC S A MOS": "( RUS FLT ( STP SCS ) ) SUP ( RUS AMY MOS )",
+        "A LVP S F EDI": "( ENG AMY LVP ) SUP ( ENG FLT EDI )",
     }
 
     sup_mto = {
@@ -194,6 +205,7 @@ def test_dipnet_order():
         for dipnet, daide in test.items():
             result = dipnet_order(daide)
             assert result == dipnet, f"{result} != {dipnet}"
+
 
 if __name__ == "__main__":
     test_daidefy_order()

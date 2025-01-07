@@ -1,0 +1,2 @@
+from diplomacy import Message
+
