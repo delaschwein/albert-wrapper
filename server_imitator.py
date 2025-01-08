@@ -23,8 +23,10 @@ from diplomacy.utils.constants import SuggestionType
 from diplomacy import Message
 import traceback
 import random
-from daide2eng.utils import gen_English
 import tomllib
+from chiron_utils.daide2eng import gen_english
+from chiron_utils.utils import is_valid_daide_message
+import logging
 
 with open("config.toml", "rb") as f:
     config = tomllib.load(f)
@@ -195,7 +197,6 @@ def build_FRM(game, power_abbr, sender, payload: List[str]):
         "(",
     ]
 
-    # TODO: make sure payload is DAIDE
     frm_prefix.extend(payload)
     frm_prefix.append(")")
 
@@ -395,7 +396,7 @@ async def handle_game_active(client_socket, power_abbr, loop, game):
     while game.status != "active":
         await asyncio.sleep(1)
 
-    print("Game is active")
+    logging.info("Game is active")
     hlo_msg = build_HLO(power_abbr)
 
     if LOG:
@@ -406,7 +407,7 @@ async def handle_game_active(client_socket, power_abbr, loop, game):
 
 
 async def handle_game_completion(game):
-    print("Game completed")
+    logging.info("Game completed")
     game_state = GamePhaseData.to_dict(game.get_phase_data())
     with open(f"{game_state['name']}.json", "w") as f:
         json.dump(game_state, f)
@@ -512,9 +513,9 @@ async def handle_client(client_socket, client_address, power):
             game_id=GAME_ID, power_name=power
         )
 
-    print(f"Connection established with {client_address}")
+    logging.info(f"Connection established with {client_address}")
     client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    print(f"SO_KEEPALIVE set for {client_address}")
+    logging.info(f"SO_KEEPALIVE set for {client_address}")
     loop = asyncio.get_running_loop()
 
     current_phase = None
@@ -526,12 +527,14 @@ async def handle_client(client_socket, client_address, power):
             client_socket, POWERS_ABBRS[power], loop, game
         )  # wait for Paquette game ready
 
-        print("Initialization done, proceeding to game after 3 seconds")
+        logging.info("Initialization done, proceeding to game after 3 seconds")
         await asyncio.sleep(3)
         send_SCO = True
         send_NOW = False
 
         messages_sent = []
+
+        num_loop = 0 # for calculating how long to wait until ready
 
         while True:
             # try to read data from client socket
@@ -588,7 +591,7 @@ async def handle_client(client_socket, client_address, power):
                             message = " ".join(message)
 
                             if USE_NL:
-                                message = gen_English(message)
+                                message = gen_english(message)
 
                             for recipient in recipients:
                                 if IS_ADVISOR and advisor:
@@ -606,8 +609,20 @@ async def handle_client(client_socket, client_address, power):
                                             )
                                         )
                                     except Exception as e:
-                                        # TODO: handle error
-                                        print(f"Error sending message: {e}")
+                                        phase_data = game.get_phase_data()
+                                        game_state = GamePhaseData.to_dict(phase_data)
+                                        new_phase = game_state["name"]
+
+                                        logging.warning(f"Error sending: {message}, resending with {new_phase}...")
+                                        
+                                        await game.send_game_message(
+                                            message=Message(
+                                                sender=power,
+                                                recipient=POWER_NAMES[recipient],
+                                                message=message,
+                                                phase=new_phase,
+                                            )
+                                        )
 
                     elif "SUB" in payload:
                         to_submit = []
@@ -651,7 +666,7 @@ async def handle_client(client_socket, client_address, power):
                             # await advisor.suggest_orders(to_submit)
 
                         else:
-                            print(f"Submitting orders: {to_submit}")
+                            logging.info(f"Submitting orders: {to_submit}")
                             await game.set_orders(orders=to_submit)
 
                         # game.process()
@@ -667,8 +682,9 @@ async def handle_client(client_socket, client_address, power):
 
                 # send SCO on new year, and ORD/NOW on new phase
                 if current_phase != game_state["name"]:
+                    num_loop = 0
                     current_phase = game_state["name"]
-                    print(f"Advance to {current_phase}")
+                    logging.info(f"Advance to {current_phase}")
 
                     # check if game completed
                     if game_state["name"] == "COMPLETED":
@@ -723,15 +739,26 @@ async def handle_client(client_socket, client_address, power):
                     payload = message_payload.split(" ")
                     frm = build_FRM(game, POWERS_ABBRS[power], sender, payload)
 
-                    # TODO: check if is daide
-                    # await send_response(client_socket, loop, frm)
+                    if LOG:
+                        with open("log.txt", "a") as f:
+                            f.write(f"s -> c: {" ".join(convert(frm))}\n")
+
+                    if is_valid_daide_message(frm):
+                        logging.info(f"Sending message to Albert: {frm}")
+                        await send_response(client_socket, loop, frm)
+
 
             await asyncio.sleep(1)
+            num_loop += 1
+
+            if num_loop >= 15:
+                logging.info("Looped 15 times, ready for next phase...")
+                game.no_wait()
 
     except Exception as e:
-        print(f"Error with client {client_address}: {e}")
+        logging.error(f"Error with client {client_address}: {e}")
     finally:
-        print(f"Closing connection with {client_address}")
+        logging.info(f"Closing connection with {client_address}")
         client_socket.close()
 
 
@@ -744,7 +771,7 @@ async def run():
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((server_host, server_port))
     server_socket.listen(NUM_ALBERTS)  # Allow up to 7 queued connections
-    print(f"Server listening on {server_host}:{server_port}")
+    logging.info(f"Server listening on {server_host}:{server_port}")
 
     # server_socket.setblocking(False)
     loop = asyncio.get_running_loop()
@@ -757,21 +784,21 @@ async def run():
                 None, server_socket.accept
             )
             power_to_use = POWERS.pop()
-            print(f"New connection from {client_address}, using power {power_to_use}")
+            logging.info(f"New connection from {client_address}, using power {power_to_use}")
             # Handle the client in an async function
             create_task_with_exception_handling(
                 handle_socket_client(client_socket, client_address, power_to_use),
                 task_name=f"Handle client {client_address}",
             )
     except KeyboardInterrupt:
-        print("Server shutting down...")
+        logging.error("Server shutting down...")
     finally:
         server_socket.close()
 
 
 async def handle_socket_client(client_socket, client_address, power):
     try:
-        print(f"Handling client {client_address}")
+        logging.info(f"Handling client {client_address}")
         await handle_client(client_socket, client_address, power)
 
     finally:
@@ -787,7 +814,7 @@ def create_task_with_exception_handling(coro, task_name="Unnamed Task"):
         try:
             await coro
         except Exception as e:
-            print(f"Exception in {task_name}: {e}")
+            logging.error(f"Exception in {task_name}: {e}")
             traceback.print_exc()
 
     return asyncio.create_task(task_wrapper(), name=task_name)
@@ -798,7 +825,7 @@ def handle_global_exceptions(loop, context):
     Handles exceptions caught by the event loop.
     """
     msg = context.get("exception", context["message"])
-    print(f"Caught global exception: {msg}")
+    logging.info(f"Caught global exception: {msg}")
     traceback.print_exc()
 
 

@@ -11,4 +11,4 @@ game_id = "test1"
 is_advisor = false
 press = true
 num_alberts = 7
-use_nl = true
+use_nl = false
