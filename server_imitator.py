@@ -39,6 +39,7 @@ PORT = config["paquette"]["port"]
 IS_ADVISOR = config["albert"]["is_advisor"]
 GAME_ID = config["paquette"]["game_id"]
 USE_NL = config["albert"]["use_nl"]
+WAIT_LOOP = config["albert"]["wait_loop"]
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
 DESIGNATED_ALBERT_POWER_ABBRS = list(POWER_NAMES.values())
@@ -189,10 +190,6 @@ def build_FRM(game, power_abbr, sender, payload: List[str]):
         ")",
         "(",
         power_abbr,
-        ")",
-        "(",
-        daide_phase,
-        hex_year,
         ")",
         "(",
     ]
@@ -608,7 +605,7 @@ async def handle_client(client_socket, client_address, power):
                                                 phase=current_phase,
                                             )
                                         )
-                                    except Exception as e:
+                                    except Exception:
                                         phase_data = game.get_phase_data()
                                         game_state = GamePhaseData.to_dict(phase_data)
                                         new_phase = game_state["name"]
@@ -623,6 +620,9 @@ async def handle_client(client_socket, client_address, power):
                                                 phase=new_phase,
                                             )
                                         )
+                                    finally:
+                                        with open("msg.txt", "a") as f:
+                                            f.write(f"{power} -> {recipient}: {message}\n")
 
                     elif "SUB" in payload:
                         to_submit = []
@@ -737,13 +737,15 @@ async def handle_client(client_socket, client_address, power):
                     sender = message["sender"]
                     sender = POWERS_ABBRS[sender]
                     payload = message_payload.split(" ")
-                    frm = build_FRM(game, POWERS_ABBRS[power], sender, payload)
 
-                    if LOG:
-                        with open("log.txt", "a") as f:
-                            f.write(f"s -> c: {" ".join(convert(frm))}\n")
+                    if is_valid_daide_message(message_payload):
+                        frm = build_FRM(game, POWERS_ABBRS[power], sender, payload)
 
-                    if is_valid_daide_message(frm):
+                        if LOG:
+                            with open("log.txt", "a") as f:
+                                f.write(f"s -> c: {" ".join(convert(frm))}\n")
+
+                        # TODO: use is_valid_daide_message for checking while account for year hex
                         logging.info(f"Sending message to Albert: {frm}")
                         await send_response(client_socket, loop, frm)
 
@@ -751,7 +753,7 @@ async def handle_client(client_socket, client_address, power):
             await asyncio.sleep(1)
             num_loop += 1
 
-            if num_loop >= 15:
+            if num_loop >= WAIT_LOOP:
                 logging.info("Looped 15 times, ready for next phase...")
                 game.no_wait()
 

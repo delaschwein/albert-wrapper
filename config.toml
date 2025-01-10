@@ -12,3 +12,4 @@ is_advisor = false
 press = true
 num_alberts = 7
 use_nl = false
+wait_loop = 15
