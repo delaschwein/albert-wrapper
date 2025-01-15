@@ -36,10 +36,11 @@ NUM_ALBERTS = config["albert"]["num_alberts"]
 LOG = config["logging"]["log"]
 HOSTNAME = config["paquette"]["hostname"]
 PORT = config["paquette"]["port"]
-IS_ADVISOR = config["albert"]["is_advisor"]
 GAME_ID = config["paquette"]["game_id"]
 USE_NL = config["albert"]["use_nl"]
 WAIT_LOOP = config["albert"]["wait_loop"]
+TO_ADVISE = config["albert"]["to_advise"]
+TO_PLAY = config["albert"]["to_play"]
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
 DESIGNATED_ALBERT_POWER_ABBRS = list(POWER_NAMES.values())
@@ -489,11 +490,11 @@ async def handle_initialization(client_socket, loop):
                 initialization_done = True
 
 
-async def handle_client(client_socket, client_address, power):
+async def handle_client(client_socket, client_address, power, is_advisor):
     # connect to paquette
     connection = await connect(HOSTNAME, PORT, False)
 
-    if IS_ADVISOR:
+    if is_advisor:
         credentials = ("admin", "password")
         channel = await connection.authenticate(*credentials)
         game: NetworkGame = await channel.join_game(
@@ -591,7 +592,7 @@ async def handle_client(client_socket, client_address, power):
                                 message = gen_english(message)
 
                             for recipient in recipients:
-                                if IS_ADVISOR and advisor:
+                                if is_advisor and advisor:
                                     await advisor.suggest_message(
                                         POWER_NAMES[recipient], message
                                     )
@@ -661,7 +662,7 @@ async def handle_client(client_socket, client_address, power):
                             dipnet_o = dipnet_order(parsed)
                             to_submit.append(dipnet_o)
 
-                        if IS_ADVISOR and advisor:
+                        if is_advisor and advisor:
                             pass
                             # await advisor.suggest_orders(to_submit)
 
@@ -692,7 +693,7 @@ async def handle_client(client_socket, client_address, power):
                         exit(0)
 
                     # send advisor suggestion type to game engine
-                    if IS_ADVISOR and advisor:
+                    if is_advisor and advisor:
                         await advisor.declare_suggestion_type()
 
                     if current_phase.endswith("A"):
@@ -785,11 +786,19 @@ async def run():
             client_socket, client_address = await loop.run_in_executor(
                 None, server_socket.accept
             )
-            power_to_use = POWERS.pop()
-            logging.info(f"New connection from {client_address}, using power {power_to_use}")
+            power_and_advisor = (None, False)
+            if len(TO_ADVISE) > 0:
+                power_and_advisor = (TO_ADVISE.pop(), True)
+            elif len(TO_PLAY) > 0:
+                power_and_advisor = (TO_PLAY.pop(), False)
+            else:
+                logging.error("No more powers to assign")
+                exit(1)
+
+            logging.info(f"New connection from {client_address}, using config {power_and_advisor}")
             # Handle the client in an async function
             create_task_with_exception_handling(
-                handle_socket_client(client_socket, client_address, power_to_use),
+                handle_socket_client(client_socket, client_address, *power_and_advisor),
                 task_name=f"Handle client {client_address}",
             )
     except KeyboardInterrupt:
@@ -798,10 +807,10 @@ async def run():
         server_socket.close()
 
 
-async def handle_socket_client(client_socket, client_address, power):
+async def handle_socket_client(client_socket, client_address, power, is_advisor):
     try:
         logging.info(f"Handling client {client_address}")
-        await handle_client(client_socket, client_address, power)
+        await handle_client(client_socket, client_address, power, is_advisor)
 
     finally:
         client_socket.close()
