@@ -22,7 +22,6 @@ import os
 from diplomacy.utils.constants import SuggestionType
 from diplomacy import Message
 import traceback
-import random
 import tomllib
 from chiron_utils.daide2eng import gen_english
 from chiron_utils.utils import is_valid_daide_message
@@ -32,11 +31,11 @@ with open("config.toml", "rb") as f:
     config = tomllib.load(f)
 
 PRESS = config["albert"]["press"]
-NUM_ALBERTS = config["albert"]["num_alberts"]
 LOG = config["logging"]["log"]
 HOSTNAME = config["paquette"]["hostname"]
 PORT = config["paquette"]["port"]
 GAME_ID = config["paquette"]["game_id"]
+USE_SSL = config["paquette"]["use_ssl"]
 USE_NL = config["albert"]["use_nl"]
 WAIT_LOOP = config["albert"]["wait_loop"]
 TO_ADVISE = config["albert"]["to_advise"]
@@ -44,7 +43,6 @@ TO_PLAY = config["albert"]["to_play"]
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
 DESIGNATED_ALBERT_POWER_ABBRS = list(POWER_NAMES.values())
-POWERS = random.sample(DESIGNATED_ALBERT_POWER_ABBRS, k=NUM_ALBERTS)
 
 
 
@@ -161,29 +159,6 @@ def build_HLO(power):
 
 
 def build_FRM(game, power_abbr, sender, payload: List[str]):
-    current_phase = game.get_phase_data()
-    game_state = GamePhaseData.to_dict(current_phase)
-
-    phase = game_state["name"]
-    daide_phase = None
-    if phase[0] == "S" and phase[-1] == "M":
-        daide_phase = "SPR"
-    elif phase[0] == "S" and phase[-1] == "R":
-        daide_phase = "SUM"
-    elif phase[0] == "F" and phase[-1] == "M":
-        daide_phase = "FAL"
-    elif phase[0] == "F" and phase[-1] == "R":
-        daide_phase = "AUT"
-    elif phase[-1] == "A":
-        daide_phase = "WIN"
-    else:
-        raise ValueError(f"Invalid phase {phase}")
-
-    year = phase[1:5]
-    assert year.isdigit(), f"Year must be a number, but got {year}"
-    year = int(year)
-    hex_year = decimal_to_hex(year)
-
     frm_prefix = [
         "FRM",
         "(",
@@ -492,7 +467,7 @@ async def handle_initialization(client_socket, loop):
 
 async def handle_client(client_socket, client_address, power, is_advisor):
     # connect to paquette
-    connection = await connect(HOSTNAME, PORT, False)
+    connection = await connect(HOSTNAME, PORT, USE_SSL)
 
     if is_advisor:
         credentials = ("admin", "password")
@@ -663,8 +638,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                             to_submit.append(dipnet_o)
 
                         if is_advisor and advisor:
-                            pass
-                            # await advisor.suggest_orders(to_submit)
+                            await advisor.suggest_orders(orders=to_submit)
 
                         else:
                             logging.info(f"Submitting orders: {to_submit}")
@@ -754,7 +728,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
             await asyncio.sleep(1)
             num_loop += 1
 
-            if num_loop >= WAIT_LOOP:
+            if not is_advisor and num_loop >= WAIT_LOOP:
                 logging.info("Looped 15 times, ready for next phase...")
                 game.no_wait()
 
@@ -773,7 +747,7 @@ async def run():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((server_host, server_port))
-    server_socket.listen(NUM_ALBERTS)  # Allow up to 7 queued connections
+    server_socket.listen(7)  # Allow up to 7 queued connections
     logging.info(f"Server listening on {server_host}:{server_port}")
 
     # server_socket.setblocking(False)
