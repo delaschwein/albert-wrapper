@@ -158,7 +158,7 @@ def build_HLO(power):
     return pooled
 
 
-def build_FRM(game, power_abbr, sender, payload: List[str]):
+def build_FRM(power_abbr, sender, payload: List[str]):
     frm_prefix = [
         "FRM",
         "(",
@@ -714,7 +714,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                     payload = message_payload.split(" ")
 
                     if is_valid_daide_message(message_payload):
-                        frm = build_FRM(game, POWERS_ABBRS[power], sender, payload)
+                        frm = build_FRM(POWERS_ABBRS[power], sender, payload)
 
                         if LOG:
                             with open("log.txt", "a") as f:
