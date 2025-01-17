@@ -240,6 +240,28 @@ DIPNET2DAIDE_LOC = {
 DAIDE2DIPNET_LOC = {v: k for k, v in DIPNET2DAIDE_LOC.items()}
 
 
+def sanitize_daide(daide: str, result:List[str]) -> List[str]:
+    """
+        Function to sanitize messy daide format e.g., no spaces between items
+        Assumes string only contains 3-letter daide tokens, spaces, and parens
+    """
+    if len(daide) > 0:
+        first = daide[0]
+        item, rest = None, None
+        
+        if first == " ":
+            return sanitize_daide(daide[1:], result)
+        elif first.isalpha() and first.isupper():
+            item, rest = daide[:3], daide[3:]
+        else:
+            # assume is braces
+            item, rest = daide[:1], daide[1:]
+        appended = result.copy()
+        appended.append(item)
+        return sanitize_daide(rest, appended)
+    else:
+        return result
+
 def split_by_two_characters(s):
     return [s[i : i + 2] for i in range(0, len(s), 2)]
 

@@ -8,6 +8,8 @@ from utils import (
     daidefy_unit,
     dipnet_order,
     daidefy_location,
+    sanitize_daide,
+    DAIDE2HEX,
 )
 import socket
 import json
@@ -711,16 +713,18 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                     message_payload = message["message"]
                     sender = message["sender"]
                     sender = POWERS_ABBRS[sender]
-                    payload = message_payload.split(" ")
+                    
 
-                    if is_valid_daide_message(message_payload):
+                    if is_valid_daide_message(message_payload) and not any(x not in DAIDE2HEX.keys() for x in payload):
+                        to_send = []
+                        payload = sanitize_daide(message_payload, to_send)
+
                         frm = build_FRM(POWERS_ABBRS[power], sender, payload)
 
                         if LOG:
                             with open("log.txt", "a") as f:
                                 f.write(f"s -> c: {" ".join(convert(frm))}\n")
 
-                        # TODO: use is_valid_daide_message for checking while account for year hex
                         logging.info(f"Sending message to Albert: {frm}")
                         await send_response(client_socket, loop, frm)
 
