@@ -2,15 +2,15 @@
 log = true
 
 [paquette]
-hostname = "diplomacy.alexhedges.dev"
+hostname = "96.231.122.77"
 port = 8433
-game_id = "3_way_test"
-use_ssl = true
+game_id = "CiceroAlbert2"
+use_ssl = false
 
 
 [albert]
-to_advise = ["RUSSIA"]
-to_play = ["FRANCE", "GERMANY", "TURKEY", "ITALY"]
-press = true
+to_advise = ["ENGLAND", "TURKEY"]
+to_play = []
+press = false
 use_nl = true
 wait_loop = 15
