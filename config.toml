@@ -2,15 +2,15 @@
 log = true
 
 [paquette]
-hostname = "96.231.122.77"
+hostname = "localhost"
 port = 8433
-game_id = "CiceroAlbert2"
+game_id = "test"
 use_ssl = false
 
 
 [albert]
-to_advise = ["ENGLAND", "TURKEY"]
-to_play = []
-press = false
+to_advise = []
+to_play = ["AUSTRIA", "ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY", "FRANCE"]
+press = true
 use_nl = true
-wait_loop = 15
+wait_loop = 25
