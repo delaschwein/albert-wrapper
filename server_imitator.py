@@ -680,7 +680,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
             game_state = GamePhaseData.to_dict(paquette_game)
 
             if game_state["name"] == "COMPLETED" or game.status == "completed":
-                handle_game_completion(game)
+                await handle_game_completion(game)
                 exit(0)
 
             # send SCO on new year, and ORD/NOW on new phase
@@ -691,7 +691,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
 
                 # check if game completed
                 if game_state["name"] == "COMPLETED":
-                    handle_game_completion(game)
+                    await handle_game_completion(game)
                     exit(0)
 
                 # send advisor suggestion type to game engine
@@ -751,7 +751,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                             with open("log.txt", "a") as f:
                                 f.write(f"s -> c: {" ".join(convert(frm))}\n")
 
-                        logging.info(f"Sending message to Albert: {frm}")
+                        logging.info(f"Sending message to Albert: {" ".join(convert(frm))}")
                         await send_response(client_socket, loop, frm)
 
 
