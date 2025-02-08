@@ -1,7 +1,7 @@
-with open("friendly_orders.txt", "r") as f:
+with open("hostile_tur_orders.txt", "r") as f:
     friendly = f.readlines()
 
-with open("default_orders.txt", "r") as f:
+with open("hostile_rus_orders.txt", "r") as f:
     defaults = f.readlines()
 
 ff = {}
@@ -21,10 +21,10 @@ for d in defaults:
 sorted_ff = sorted(ff.items(), key=lambda x: x[1], reverse=True)
 sorted_df = sorted(df.items(), key=lambda x: x[1], reverse=True)
 
-print("Friendly orders:")
+print("hostile tur orders:")
 for f in sorted_ff:
     print(f[0].strip(), f[1])
 
-print("\nDefault orders:")
+print("\nhostile rus orders:")
 for d in sorted_df:
     print(d[0].strip(), d[1])

@@ -1,4 +1,4 @@
-from utils import (
+from albert_utils import (
     convert,
     convert_to_hex,
     POWER_NAMES,
@@ -28,6 +28,67 @@ import tomllib
 from chiron_utils.daide2eng import gen_english
 from chiron_utils.utils import is_valid_daide_message
 import logging
+import diplomacy
+
+#AMR STUFF
+import sys
+from amrlib.models.parse_xfm.inference import Inference
+from daide2eng.utils import create_daide_grammar
+sys.path.insert(0, '../AMR/DAIDE/DiplomacyAMR/code')
+from DAIDE.DiplomacyAMR.code.amrtodaide_LLM import AMR
+import regex
+
+
+def ENG_AMR(english,sender,recipient):
+    num_beams   = 4
+    batch_size  = 16
+    device = 'cpu'
+    model_dir  = 'personal/SEN_REC_MODEL/'
+    inference = Inference(model_dir, batch_size=batch_size, num_beams=num_beams, device=device)
+    try:
+      graph, daide_status,daide_s = eng_to_daide(english,sender,recipient,inference)
+    except:
+      graph, daide_status,daide_s = 'no-amr','NO-DAIDE',''
+    return graph, daide_status,daide_s
+
+
+def eng_to_daide(english,sender,recipient,inference):
+    print('---------------------------')
+    gen_graphs = inference.parse_sents(['SEN'+' send to '+'REC'+' that '+english.replace(sender,'SEN').replace(recipient,'REC')], disable_progress=False)
+    for graph in gen_graphs:
+        graph = graph.replace('SEN',sender).replace('REC',recipient)
+        amr = AMR()
+        amr_node, s, error_list, snt_id, snt, amr_s = amr.string_to_amr(graph)
+        if amr_node:
+            amr.root = amr_node
+        try:
+            amr_s2 = amr.amr_to_string()
+        except RecursionError:
+            return 'No-DAIDE',''
+        if amr_s2 == '(a / amr-empty)':
+            daide_s, warnings = '', []
+        else:
+            daide_s, warnings = amr.amr_to_daide()
+        daide_status = check_valid(daide_s)
+        return graph,daide_status,daide_s
+
+def check_valid(daide_sentence):
+    grammar = create_daide_grammar(level=130)
+    try:
+        parse_tree = grammar.parse(daide_sentence)
+        Full = True
+    except:
+        Full = False
+    if regex.search(r'[A-Z]{3}', daide_sentence):
+        if regex.search(r'[a-z]', daide_sentence):
+            daide_status = 'Partial-DAIDE'
+        elif Full == False:
+            daide_status = 'Para-DAIDE'
+        else:
+            daide_status = 'Full-DAIDE'
+    else:
+        daide_status = 'No-DAIDE'
+    return daide_status
 
 with open("config.toml", "rb") as f:
     config = tomllib.load(f)
@@ -135,7 +196,7 @@ def build_HLO(power):
     if not PRESS:
         lvl = "0000"
     else:
-        lvl = "1f40"
+        lvl = "1f40" 
 
     payload = convert_to_hex(
         [
@@ -181,10 +242,14 @@ def build_FRM(power_abbr, sender, payload: List[str]):
     return hex(526)[2:].zfill(4) + decimal_to_hex(length) + frm_hex
 
 
-def build_SCO(game_state):
+def build_SCO(game_state, self_power, friendly_power=None, hostile_power=None):
     """
     return a SCO string to be sent to albert
     """
+
+    assert not (all([friendly_power, hostile_power])), (
+        "Cannot have both friendly and hostile power"
+    )
 
     centers_dict = game_state["state"]["centers"]
 
@@ -192,6 +257,12 @@ def build_SCO(game_state):
 
     for power, centers in centers_dict.items():
         power_abbr = POWERS_ABBRS[power]
+
+        if friendly_power and power_abbr == friendly_power:
+            power_abbr = self_power
+        elif hostile_power and power_abbr != hostile_power:
+            power_abbr = self_power
+
         to_append = ["(", power_abbr]
 
         to_append.extend(centers)
@@ -213,15 +284,19 @@ def build_SCO(game_state):
     return hex(526)[2:].zfill(4) + decimal_to_hex(length) + sco_hex
 
 
-def build_NOW(game, power_abbr):
+def build_NOW(game, self_power, friendly_power=None, hostile_power=None):
     """
     return a tuple of (ORDs, NOW) to be sent to albert
     """
 
+    assert not (all([friendly_power, hostile_power])), (
+        "Cannot have both friendly and hostile power"
+    )
+
     current_phase = game.get_phase_data()
     game_state = GamePhaseData.to_dict(current_phase)
 
-    orders = build_ORD(game, power_abbr)
+    orders = build_ORD(game, self_power)
     ords = []
 
     phase = game_state["name"]
@@ -271,6 +346,12 @@ def build_NOW(game, power_abbr):
 
     for power, units in game_state["state"]["units"].items():
         power_abbr = POWERS_ABBRS[power]
+
+        if friendly_power and power_abbr == friendly_power:
+            power_abbr = power_abbr
+        elif hostile_power and power_abbr != hostile_power:
+            power_abbr = power_abbr
+
         for unit in units:
             # handle retreats
             if unit.startswith("*"):
@@ -480,7 +561,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
         advisor = AlbertAdvisor(power, game)
     else:
         credentials = (
-            f"cicero_{power}",
+            f"Albert{power}",
             "password",
         )
         channel = await connection.authenticate(*credentials)
@@ -503,9 +584,11 @@ async def handle_client(client_socket, client_address, power, is_advisor):
     )  # wait for Paquette game ready
 
     logging.info("Initialization done, proceeding to game after 3 seconds")
-    await asyncio.sleep(3)
+    await asyncio.sleep(2)
     send_SCO = True
     send_NOW = False
+
+    prev_power_stance = (None, None)
 
     messages_sent = []
 
@@ -564,9 +647,17 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                         recipients = msg[0][1:-1]  # removes parentheses
                         message = msg[1][1:-1]  # removes parentheses
                         daide = " ".join(message)
+                        prp_response = None
+                        if "REJ" in message:
+                            prp_response = "no"
+                        if "YES" in message:
+                            prp_response = "yes"
 
                         if USE_NL:
-                            message = gen_english(daide)
+                            if prp_response is None:
+                                message = gen_english(daide)
+                            else:
+                                message = prp_response
                         else:
                             message = daide
 
@@ -663,7 +754,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                         logging.info(f"Submitting orders: {to_submit}")
                         try:
                             await game.set_orders(orders=to_submit)
-                        except Exception:
+                        except diplomacy.utils.exceptions.ResponseException:
                             phase_data = game.get_phase_data()
                             game_state = GamePhaseData.to_dict(phase_data)
                             new_phase = game_state["name"]
@@ -689,6 +780,9 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                 current_phase = game_state["name"]
                 logging.info(f"Advance to {current_phase}")
 
+                if not is_advisor:
+                    await game.wait()
+
                 # check if game completed
                 if game_state["name"] == "COMPLETED":
                     await handle_game_completion(game)
@@ -703,7 +797,7 @@ async def handle_client(client_socket, client_address, power, is_advisor):
                 send_NOW = True
 
             if send_SCO:
-                sco = build_SCO(game_state)
+                sco = build_SCO(game_state, POWERS_ABBRS[power])
                 if LOG:
                     with open("log.txt", "a") as f:
                         f.write(f"s -> c: {" ".join(convert(sco))}\n")
@@ -727,6 +821,40 @@ async def handle_client(client_socket, client_address, power, is_advisor):
 
                 send_NOW = False
 
+            if is_advisor and advisor:
+                # assuming message = ${STANCE:{F|H}:{POWER}}
+                await game.synchronize()
+                paquette_game = game.logs
+                #latest_log = paquette_game.last_value()
+
+                current_logs = [
+                    x
+                    for x in paquette_game.values()
+                    if x.sender == power and x.phase == game_state["name"]
+                    and x.message.startswith("STANCE")
+                ]
+
+                if len(current_logs) > 0:
+                    # get latest log by time_sent
+                    latest_log = max(current_logs, key=lambda x: x.time_sent)
+
+                    _, stance, to_power = latest_log.message.split(":")
+                    print(stance, to_power)
+
+                    if stance != prev_power_stance[0] or to_power != prev_power_stance[1]:
+                        prev_power_stance = (stance, to_power)
+
+                        if stance == "F":
+                            ords, now = build_NOW(game, POWERS_ABBRS[power], friendly_power=POWERS_ABBRS[to_power])
+                        else:
+                            ords, now = build_NOW(game, POWERS_ABBRS[power], hostile_power=POWERS_ABBRS[to_power])
+                        if LOG:
+                            with open("log.txt", "a") as f:
+                                f.write(f"s -> c: {stance} {to_power}-> {' '.join(convert(now))}\n")
+
+                        await send_response(client_socket, loop, now)
+                    
+
             # update messages to Albert
             to_albert = [
                 x
@@ -735,32 +863,52 @@ async def handle_client(client_socket, client_address, power, is_advisor):
             ]
             messages_sent.extend([x["time_sent"] for x in to_albert])
 
-            for message in to_albert:
-                if "daide" in message:
-                    message_payload = message["daide"]
-                    sender = message["sender"]
-                    sender = POWERS_ABBRS[sender]
+            if PRESS:
+                for message in to_albert:
+                    if "daide" in message and message["daide"]:
+                        message_payload = message["daide"]
+                        sender = message["sender"]
+                        sender = POWERS_ABBRS[sender]
 
-                    to_send = []
-                    payload = sanitize_daide(message_payload, to_send)
-                
-                    if is_valid_daide_message(message_payload) and not any(x not in DAIDE2HEX.keys() for x in payload):
-                        frm = build_FRM(POWERS_ABBRS[power], sender, payload)
+                        to_send = []
 
-                        if LOG:
-                            with open("log.txt", "a") as f:
-                                f.write(f"s -> c: {" ".join(convert(frm))}\n")
+                        payload = sanitize_daide(message_payload, to_send)
+                    
+                        if is_valid_daide_message(message_payload) and not any(x not in DAIDE2HEX.keys() for x in payload):
+                            frm = build_FRM(POWERS_ABBRS[power], sender, payload)
 
-                        logging.info(f"Sending message to Albert: {" ".join(convert(frm))}")
-                        await send_response(client_socket, loop, frm)
+                            if LOG:
+                                with open("log.txt", "a") as f:
+                                    f.write(f"s -> c: {" ".join(convert(frm))}\n")
 
+                            logging.info(f"Sending message to Albert: {" ".join(convert(frm))}")
+                            await send_response(client_socket, loop, frm)
+                    else:
+                        # parse to daide
+                        sender = message["sender"]
+                        graph, daide_status,daide_s = ENG_AMR(message["message"], sender, power)
+                        if daide_status == 'Full-DAIDE' and "PRP" in daide_s:
+                            to_send = []
+                            payload = sanitize_daide(daide_s, to_send)
+
+                            if is_valid_daide_message(daide_s) and not any(x not in DAIDE2HEX.keys() for x in payload):
+                                frm = build_FRM(POWERS_ABBRS[power], sender, payload)
+
+                                if LOG:
+                                    with open("log.txt", "a") as f:
+                                        f.write(f"s -> c: {" ".join(convert(frm))}\n")
+
+                                logging.info(f"Sending message to Albert: {" ".join(convert(frm))}")
+                                await send_response(client_socket, loop, frm)
 
         await asyncio.sleep(1)
-        num_loop += 1
+
+        if not is_advisor:
+            num_loop += 1
 
         if not is_advisor and num_loop >= WAIT_LOOP:
             logging.info("Looped 15 times, ready for next phase...")
-            game.no_wait()
+            await game.no_wait()
 
     #except Exception as e:
     #    logging.error(f"Error with client {client_address}: {e}")

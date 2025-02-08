@@ -9,8 +9,8 @@ use_ssl = false
 
 
 [albert]
-to_advise = []
-to_play = ["AUSTRIA", "ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY", "FRANCE"]
-press = true
+to_advise = ["AUSTRIA"]
+to_play = []
+press = false
 use_nl = true
-wait_loop = 25
+wait_loop = 18
