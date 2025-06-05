@@ -835,16 +835,6 @@ async def handle_client(client_socket, client_address, power, is_advisor, is_eng
                 #if not is_advisor or not advisor:
                 send_NOW = True
 
-
-            await send_game_message(game, 
-                Message(
-                    sender=power,
-                    recipient="ENGLAND" if power != "ENGLAND" else "AUSTRIA",
-                    message="buh",
-                    phase=current_phase,
-                )                    
-            )
-
             if send_SCO:
                 sco = build_SCO(game_state, POWERS_ABBRS[power])
                 await loop.sock_sendall(
