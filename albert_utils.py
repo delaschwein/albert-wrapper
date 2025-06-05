@@ -249,7 +249,7 @@ def sanitize_daide(daide: str, result:List[str]) -> List[str]:
         first = daide[0]
         item, rest = None, None
         
-        if first == " ":
+        if first.isspace():
             return sanitize_daide(daide[1:], result)
         elif first.isalpha() and first.isupper():
             item, rest = daide[:3], daide[3:]

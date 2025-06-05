@@ -3,7 +3,7 @@ $lines = Get-Content "config.toml"
 $arrays = @{}
 
 foreach ($line in $lines) {
-    if ($line -match '^\s*(to_play|to_advise)\s*=\s*\[(.*)\]\s*$') {
+    if ($line -match '^\s*(to_play|to_advise|to_engine)\s*=\s*\[(.*)\]\s*$') {
         $key = $matches[1]
         $arrayContent = $matches[2]
 
@@ -17,7 +17,7 @@ foreach ($line in $lines) {
     }
 }
 
-$combinedLength = $arrays['to_play'].Count + $arrays['to_advise'].Count
+$combinedLength = $arrays['to_play'].Count + $arrays['to_advise'].Count + $arrays['to_engine'].Count
 Write-Host "Combined length: $combinedLength"
 
 for ($i = 1; $i -le $combinedLength; $i++) {

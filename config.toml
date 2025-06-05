@@ -2,15 +2,16 @@
 log = true
 
 [paquette]
-hostname = "localhost"
+hostname = "173.79.1.178"
 port = 8433
 game_id = "test"
 use_ssl = false
 
-
 [albert]
-to_advise = ["AUSTRIA"]
-to_play = []
+to_advise = []
+to_play = ["AUSTRIA", "GERMANY", "RUSSIA", "TURKEY", "ENGLAND", "FRANCE"]
+to_engine = []
+to_comment = []
 press = false
 use_nl = true
-wait_loop = 18
+pred_opponent_move = false
