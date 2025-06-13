@@ -9,8 +9,8 @@ use_ssl = false
 
 [albert]
 to_advise = []
-to_play = ["AUSTRIA", "GERMANY", "ITALY", "RUSSIA", "TURKEY", "ENGLAND", "FRANCE"]
-to_engine = []
+to_play = []
+to_engine = ["AUSTRIA"]
 to_comment = []
 press = false
 use_nl = true

@@ -76,20 +76,14 @@ predict_orders = {}
 
 
 not_assigned_powers = [
-    x for x in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"] if x not in TO_ADVISE + TO_PLAY + TO_ENGINE + TO_COMMENT
+    x for x in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"] if x not in TO_ENGINE
 ]
 
 power_queues = {
-    "TO_ADVISE": Queue(),
-    "TO_PLAY": Queue(),
     "TO_ENGINE": Queue(),
     "NOT_ASSIGNED": Queue(),
 }
 
-for power in TO_ADVISE:
-    power_queues["TO_ADVISE"].put(power)
-for power in TO_PLAY:
-    power_queues["TO_PLAY"].put(power)
 for power in TO_ENGINE:
     power_queues["TO_ENGINE"].put(power)
 for power in not_assigned_powers:
@@ -107,35 +101,6 @@ with open("scs.json", "r") as f:
 """
     NOTE: as long as DM prefix is >= 512 && < 768 it is valid
 """
-
-class AlbertBot(BaselineBot, ABC):
-    async def gen_orders(self) -> List[str]:
-        return []
-
-    async def do_messaging_round(self, orders: Sequence[str]) -> List[str]:
-        return []
-
-
-class AlbertAdvisor(AlbertBot):
-    """Advisor form of `CiceroBot`."""
-
-    bot_type = BotType.ADVISOR
-
-    if not PRESS:
-        if PREDICT_OPPONENT_MOVE:
-            suggestion_type = SuggestionType.MOVE | SuggestionType.OPPONENT_MOVE
-        else:
-            suggestion_type = SuggestionType.MOVE | SuggestionType.COMMENTARY
-    else:
-        if PREDICT_OPPONENT_MOVE:
-            suggestion_type = SuggestionType.MESSAGE_AND_MOVE | SuggestionType.COMMENTARY | SuggestionType.OPPONENT_MOVE
-        else:
-            suggestion_type = SuggestionType.MESSAGE_AND_MOVE | SuggestionType.COMMENTARY
-
-class MovePredictor(AlbertBot):
-    bot_type = BotType.ADVISOR
-
-    suggestion_type = SuggestionType.OPPONENT_MOVE
 
 def tokenize(orders):
     """
@@ -335,6 +300,7 @@ def build_NOW(game, self_power, ally_powers=None):
 
     # calculate if need to include MRT
     need_mrt = False
+    mrts = []
     if game_state["state"]["retreats"]:
         if any(len(x) for x in game_state["state"]["retreats"].values()) or any(
             x.startswith("*")
@@ -406,6 +372,8 @@ def build_ORD(game, power_abbr):
             result_type = "DSR"
         elif unit_result[0] == "no convoy" or unit_result[0] == "void":
             result_type = "NSO"
+        else:
+            result_type = "SUC"  # Default fallback
 
         order = [x for x in albert_orders if x.startswith(unit)]
         if len(order) != 1:
@@ -542,26 +510,80 @@ async def handle_initialization(client_socket, loop):
                 initialization_done = True
 
 
-async def handle_client(client_socket, client_address, power, is_advisor, is_engine, predict_move_only):
+aggregated_orders = {}
+orders_lock = asyncio.Lock()
+game_instance = None
+current_game_phase = None
+orderable_powers = []
+waiting_for_orders = True
+
+async def submit_aggregated_orders():
+    global aggregated_orders, current_game_phase, orderable_powers, waiting_for_orders
+
+    while True:
+        # Check for phase change or a set interval
+        await asyncio.sleep(2) # Check every 2 seconds, adjust as needed
+
+        if game_instance:
+            phase_data = game_instance.get_phase_data()
+            game_state = GamePhaseData.to_dict(phase_data)
+            new_phase = game_state["name"]
+            orderable_powers = [k for k, v in game_instance.get_orderable_locations().items() if len(v) > 0]
+
+            if new_phase != current_game_phase:
+                # Reset aggregated orders for the new phase
+                async with orders_lock:
+                    aggregated_orders = {}
+                    waiting_for_orders = True
+
+                current_game_phase = new_phase
+
+            if waiting_for_orders and len(aggregated_orders) == len(orderable_powers):
+                async with orders_lock:
+                    for power, orders_list in aggregated_orders.items():
+                        print(f"orders for {power}: {orders_list}")
+
+                current_game_phase = new_phase
+                orderable_powers = []
+                waiting_for_orders = False
+
+            print(f"Aggregated orders for {current_game_phase}: {aggregated_orders}")
+            print(orderable_powers)
+            print(new_phase, current_game_phase, waiting_for_orders)
+
+
+async def handle_client(client_socket, client_address, power, is_engine):
+    global game_instance, current_game_phase, aggregated_orders, waiting_for_orders
+
     # connect to paquette
     connection = await connect(HOSTNAME, PORT, USE_SSL)
 
-    if is_advisor:
-        credentials = ("admin", "password")
-        channel = await connection.authenticate(*credentials)
-        game: NetworkGame = await channel.join_game(
-            game_id=GAME_ID
-        )
-        advisor = AlbertAdvisor(power, game)
-    else:
-        credentials = (
-            f"cicero_{power}",
-            "password",
-        )
+    credentials = (
+        f"cicero_{power}",
+        "password",
+    )
+    admin_credentials = (
+        f"ADMIN_{power}",
+        "password",
+    )
+
+    if is_engine:
         channel = await connection.authenticate(*credentials)
         game: NetworkGame = await channel.join_game(
             game_id=GAME_ID, power_name=power
         )
+    else:
+        channel = await connection.authenticate(*admin_credentials)
+        game: NetworkGame = await channel.join_game(
+            game_id=GAME_ID
+        )
+
+    if game_instance is None:
+        game_instance = game
+        phase_data = game.get_phase_data()
+        current_game_phase = GamePhaseData.to_dict(phase_data)["name"]
+        # Initialize aggregated_orders for all powers
+
 
     logging.info(f"Connection established with {client_address}")
     client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -651,82 +673,51 @@ async def handle_client(client_socket, client_address, power, is_advisor, is_eng
                             message = daide
 
                         for recipient in recipients:
-                            if is_advisor and advisor:
+                            try:
+                                await send_game_message(game, 
+                                    Message(
+                                        sender=power,
+                                        recipient=POWER_NAMES[recipient],
+                                        message=message,
+                                        phase=current_phase,
+                                        type="daide",
+                                        daide=daide
+                                    )                    
+                                                        
+                                    #) game.send_game_message(
+                                    #message=
+                                )
+                            except Exception:
+                                phase_data = game.get_phase_data()
+                                game_state = GamePhaseData.to_dict(phase_data)
+                                new_phase = game_state["name"]
+
+                                logging.warning(f"Error sending: {message}, resending with {new_phase}...")
                                 
-                                try:
-                                    await advisor.suggest_message(
-                                        POWER_NAMES[recipient], message
-                                    )
-                                except Exception:
-                                    phase_data = game.get_phase_data()
-                                    game_state = GamePhaseData.to_dict(phase_data)
-                                    new_phase = game_state["name"]
-
-                                    logging.warning(f"Error sending: {message}, resending with {new_phase}...")
-
-                                    await advisor.suggest_message(
-                                        POWER_NAMES[recipient], message
-                                    )
-                            else:
-                                try:
-                                    await send_game_message(game, 
-                                        Message(
-                                            sender=power,
-                                            recipient=POWER_NAMES[recipient],
-                                            message=message,
-                                            phase=current_phase,
-                                            type="daide",
-                                            daide=daide
-                                        )                    
-                                                            
-                                        #) game.send_game_message(
-                                        #message=
-                                    )
-                                except Exception:
-                                    phase_data = game.get_phase_data()
-                                    game_state = GamePhaseData.to_dict(phase_data)
-                                    new_phase = game_state["name"]
-
-                                    logging.warning(f"Error sending: {message}, resending with {new_phase}...")
-                                    
-                                    await send_game_message(game, Message(
-                                            sender=power,
-                                            recipient=POWER_NAMES[recipient],
-                                            message=message,
-                                            phase=current_phase,
-                                            type="daide",
-                                            daide=daide
-                                        )) 
-                                    """ game.send_game_message(
-                                        message=Message(
-                                            sender=power,
-                                            recipient=POWER_NAMES[recipient],
-                                            message=message,
-                                            phase=new_phase,
-                                            type="daide",
-                                            daide=daide
-                                        )
-                                    ) """
-                                finally:
-                                    with open("msg.txt", "a") as f:
-                                        f.write(f"{power} -> {recipient}: {message}\n")
+                                await send_game_message(game, Message(
+                                        sender=power,
+                                        recipient=POWER_NAMES[recipient],
+                                        message=message,
+                                        phase=current_phase,
+                                        type="daide",
+                                        daide=daide
+                                    )) 
+                            finally:
+                                with open("msg.txt", "a") as f:
+                                    f.write(f"{power} -> {recipient}: {message}\n")
 
                     elif "GOF" in payload:
-                        if not is_advisor and "NOT" not in payload:
+                        if "NOT" not in payload:
                             if is_engine and not game_state["name"].endswith("M"):
                                 await game.no_wait()
-                            elif not is_engine:
-                                await game.no_wait()
-                        elif "NOT" in payload and not is_advisor:
+                        elif is_engine and "NOT" in payload:
                             await game.wait()
                     elif "DRW" in payload:
-                        if not is_advisor:
-                            if "NOT" not in payload:
-                                await game.vote(vote='yes')
+                        if "NOT" not in payload:
+                            await game.vote(vote='yes')
 
                 elif "SUB" in payload:
                     to_submit = []
-                    ally_moves = {}
 
                     if any(
                         x in converted for x in ["WIN", "AUT", "SUM", "SPR", "FAL"]
@@ -761,40 +752,17 @@ async def handle_client(client_socket, client_address, power, is_advisor, is_eng
                         parsed = " ".join(order[1:-1])  # remove parentheses
                         dipnet_o = dipnet_order(parsed)
 
-                        if (not is_advisor or not advisor) and dipnet_o != "WAIVE":
+                        if dipnet_o != "WAIVE":
                             to_submit.append(dipnet_o)
 
-                        else:
-                        # if the unit is actually from an ally, suggest message
-                            if is_advisor and advisor and any([dipnet_o.startswith(x) for x in orderable_units[power]]):
-                                to_submit.append(dipnet_o)
-                            else:
-                                ally_power = None
-                                for pp, units in orderable_units.items():
-                                    if any([dipnet_o.startswith(x) for x in units]):
-                                        ally_power = pp
-                                        break
-                                if ally_power:
-                                    if ally_power not in ally_moves:
-                                        ally_moves[ally_power] = []
-                                    ally_moves[ally_power].append(dipnet_o)
+                        async with orders_lock:
+                            aggregated_orders[power] = to_submit
 
-                    if ally_moves:
-                        for ally, orders in ally_moves.items():
-                            if is_advisor and advisor:
-                                await advisor.suggest_commentary(
-                                        ally, f"You should convince {ally} to do {orders}"
-                                    )
 
-                    if is_advisor and advisor:
-                        await advisor.suggest_orders(orders=to_submit)
-
-                    else:
-                        
-                        logging.info(f"Submitting orders: {to_submit}")
+                    if is_engine:
                         try:
                             await set_game_orders(game, to_submit) #game.set_orders(orders=to_submit)
-                        except diplomacy.utils.exceptions.ResponseException:
+                        except Exception:
                             phase_data = game.get_phase_data()
                             game_state = GamePhaseData.to_dict(phase_data)
                             new_phase = game_state["name"]
@@ -826,10 +794,6 @@ async def handle_client(client_socket, client_address, power, is_advisor, is_eng
                     await handle_game_completion(game)
                     sys.exit(0)
 
-                # send advisor suggestion type to game engine
-                if is_advisor and advisor and orderable_locations[power]:
-                    await advisor.declare_suggestion_type()
-
                 if current_phase.endswith("A"):
                     send_SCO = True
                 #if not is_advisor or not advisor:
@@ -858,41 +822,7 @@ async def handle_client(client_socket, client_address, power, is_advisor, is_eng
 
                 send_NOW = False
 
-            if is_advisor and advisor:
-                await game.synchronize()
-                msgs = game.messages
-
-                if msgs:
-                    mms = msgs.sub()
-                    advice_requests = [x for x in mms if x.sender == power and x.recipient == "GLOBAL"]
-
-                if len(advice_requests):
-                    last_request = max(advice_requests, key=lambda x: x.time_sent)
-                
-                    try:
-                        stance = json.loads(last_request.message)
-                    except json.JSONDecodeError:
-                        logging.error("Invalid JSON")
-                        continue
-
-                    ally_powers = [k for k, v in stance.items() if v > 0]
-                    print(f"latest stance: {stance}")
-                    for pp in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"]:
-                        if pp not in stance:
-                            stance[pp] = 0
-
-                    if prev_power_stance is None or stance != prev_power_stance:
-                        print(f"Stance changed, sending {ally_powers}")
-                        prev_power_stance = stance
-                        ords, now = build_NOW(game, POWERS_ABBRS[power], ally_powers=ally_powers)
-
-                        await loop.sock_sendall(
-                            client_socket,
-                            now if isinstance(now, bytes) else bytes.fromhex(now),
-                        )
-                    
-
-            if PRESS and not is_advisor and not is_engine:
+            if PRESS and not is_engine:
                 # update messages to Albert
                 to_albert = [
                     x
@@ -938,6 +868,12 @@ async def run():
     loop = asyncio.get_running_loop()
     loop.set_exception_handler(handle_global_exceptions)
 
+    create_task_with_exception_handling(
+        submit_aggregated_orders(),
+        task_name="Order Aggregation and Submission Task"
+    )
+
+
     try:
         while True:
             # Accept connections asynchronously
@@ -945,24 +881,16 @@ async def run():
                 None, server_socket.accept
             )
 
-            power_and_advisor = (None, False, False, False)
-            if not power_queues["TO_ADVISE"].empty():
-                power_and_advisor = (power_queues["TO_ADVISE"].get(), True, False, False)
-            elif not power_queues["TO_PLAY"].empty():
-                power_and_advisor = (power_queues["TO_PLAY"].get(), False, False, False)
-            elif not power_queues["TO_ENGINE"].empty():
-                power_and_advisor = (power_queues["TO_ENGINE"].get(), False, True, False)
+            if not power_queues["TO_ENGINE"].empty():
+                assigned_power = (power_queues["TO_ENGINE"].get(), True)
             elif not power_queues["NOT_ASSIGNED"].empty():
-                power_and_advisor = (power_queues["NOT_ASSIGNED"].get(), False, False, True)
+                assigned_power = (power_queues["NOT_ASSIGNED"].get(), False)
             else:
-                logging.error("No more powers to assign")
-                client_socket.close()
-                sys.exit(1)
-
-            logging.info(f"New connection from {client_address}, using config {power_and_advisor}")
+                raise RuntimeError("No available power to assign to client")
+            
             # Handle the client in an async function
             create_task_with_exception_handling(
-                handle_socket_client(client_socket, client_address, *power_and_advisor),
+                handle_socket_client(client_socket, client_address, assigned_power[0], assigned_power[1]),
                 task_name=f"Handle client {client_address}",
             )
     except KeyboardInterrupt:
@@ -971,10 +899,10 @@ async def run():
         server_socket.close()
 
 
-async def handle_socket_client(client_socket, client_address, power, is_advisor, is_engine, predict_move_only):
+async def handle_socket_client(client_socket, client_address, power, is_engine):
     try:
         logging.info(f"Handling client {client_address}")
-        await handle_client(client_socket, client_address, power, is_advisor, is_engine, predict_move_only)
+        await handle_client(client_socket, client_address, power, is_engine)
     except Exception as e:
         logging.error(f"Error handling client {power} {client_address}: {e}")
         traceback.print_exc()
