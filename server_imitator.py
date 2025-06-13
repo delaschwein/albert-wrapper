@@ -547,10 +547,6 @@ async def submit_aggregated_orders():
                 orderable_powers = []
                 waiting_for_orders = False
 
-            print(f"Aggregated orders for {current_game_phase}: {aggregated_orders}")
-            print(orderable_powers)
-            print(new_phase, current_game_phase, waiting_for_orders)
-
 
 async def handle_client(client_socket, client_address, power, is_engine):
     global game_instance, current_game_phase, aggregated_orders, waiting_for_orders
