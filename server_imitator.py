@@ -19,7 +19,7 @@ from diplomacy.client.connection import connect
 import asyncio
 from chiron_utils.bots.baseline_bot import BaselineBot, BotType
 from abc import ABC
-from typing import Sequence, List
+from typing import Sequence, List, Optional
 import os
 from diplomacy.utils.constants import SuggestionType
 from diplomacy import Message
@@ -31,15 +31,34 @@ import logging
 import diplomacy
 import sys
 from queue import Queue
+from dataclasses import dataclass
 
+@dataclass
+class AlbertBot(BaselineBot, ABC):
+    async def gen_orders(self) -> List[str]:
+        return []
+
+    async def do_messaging_round(self, orders: Sequence[str]) -> List[str]:
+        return []
+
+
+@dataclass
+class AlbertAdvisor(AlbertBot):
+    """Advisor form of `AlbertBot`."""
+
+    bot_type = BotType.ADVISOR
+    default_suggestion_type = (
+        SuggestionType.MOVE
+        | SuggestionType.OPPONENT_MOVE
+    )
 
 async def send_response_with_retry(client_socket, loop, response):
     if LOG:
         with open("log.txt", "a") as f:
             if isinstance(response, bytes):
-                f.write(f"s -> c: {" ".join(convert(response.hex()))}\n")
+                f.write(f"s -> c: {' '.join(convert(response.hex()))}\n")
             else:
-                f.write(f"s -> c: {" ".join(convert(response))}\n")
+                f.write(f"s -> c: {' '.join(convert(response))}\n")
             f.write(f"s -> c: {response}\n")
 
     return await loop.sock_sendall(
@@ -152,7 +171,7 @@ async def read_data(loop, sock, self_power=""):
 
         if LOG:
             with open("log.txt", "a") as f:
-                f.write(f"{self_power} -> s: {remaining_len} {" ".join(convert(rest.hex()))}\n")
+                f.write(f"{self_power} -> s: {remaining_len} {' '.join(convert(rest.hex()))}\n")
 
         return message_type, rest.hex()
     except asyncio.TimeoutError:
@@ -516,6 +535,7 @@ game_instance = None
 current_game_phase = None
 orderable_powers = []
 waiting_for_orders = True
+albert_agent: Optional[AlbertBot] = None
 
 async def submit_aggregated_orders():
     global aggregated_orders, current_game_phase, orderable_powers, waiting_for_orders
@@ -542,6 +562,11 @@ async def submit_aggregated_orders():
                 async with orders_lock:
                     for power, orders_list in aggregated_orders.items():
                         print(f"orders for {power}: {orders_list}")
+                try:
+                    await albert_agent.suggest_opponent_orders(aggregated_orders)
+                except Exception:
+                    logging.exception("Advisor suggestion error")
+                    continue
 
                 current_game_phase = new_phase
                 orderable_powers = []
@@ -549,7 +574,7 @@ async def submit_aggregated_orders():
 
 
 async def handle_client(client_socket, client_address, power, is_engine):
-    global game_instance, current_game_phase, aggregated_orders, waiting_for_orders
+    global game_instance, current_game_phase, aggregated_orders, waiting_for_orders, albert_agent
 
     # connect to paquette
     connection = await connect(HOSTNAME, PORT, USE_SSL)
@@ -578,6 +603,7 @@ async def handle_client(client_socket, client_address, power, is_engine):
         game_instance = game
         phase_data = game.get_phase_data()
         current_game_phase = GamePhaseData.to_dict(phase_data)["name"]
+        albert_agent = AlbertAdvisor()
         # Initialize aggregated_orders for all powers
 
 
@@ -840,7 +866,7 @@ async def handle_client(client_socket, client_address, power, is_engine):
                         if is_valid_daide_message(message_payload) and not any(x not in DAIDE2HEX.keys() for x in payload):
                             frm = build_FRM(POWERS_ABBRS[power], sender, payload)
 
-                            logging.info(f"Sending message to Albert: {" ".join(convert(frm))}")
+                            logging.info(f"Sending message to Albert: {' '.join(convert(frm))}")
                             await loop.sock_sendall(
                                 client_socket,
                                 frm if isinstance(frm, bytes) else bytes.fromhex(frm),
