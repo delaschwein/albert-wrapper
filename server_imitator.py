@@ -584,7 +584,7 @@ async def handle_client(client_socket, client_address, power, is_engine):
         "password",
     )
     admin_credentials = (
-        f"ADMIN_{power}",
+        "admin",
         "password",
     )
 
