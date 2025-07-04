@@ -31,26 +31,7 @@ import logging
 import diplomacy
 import sys
 from queue import Queue
-from dataclasses import dataclass
 
-@dataclass
-class AlbertBot(BaselineBot, ABC):
-    async def gen_orders(self) -> List[str]:
-        return []
-
-    async def do_messaging_round(self, orders: Sequence[str]) -> List[str]:
-        return []
-
-
-@dataclass
-class AlbertAdvisor(AlbertBot):
-    """Advisor form of `AlbertBot`."""
-
-    bot_type = BotType.ADVISOR
-    default_suggestion_type = (
-        SuggestionType.MOVE
-        | SuggestionType.OPPONENT_MOVE
-    )
 
 async def send_response_with_retry(client_socket, loop, response):
     if LOG:
@@ -88,25 +69,26 @@ TO_ADVISE = config["albert"]["to_advise"]
 TO_PLAY = config["albert"]["to_play"]
 TO_ENGINE = config["albert"]["to_engine"]
 TO_COMMENT = config["albert"]["to_comment"]
-PREDICT_OPPONENT_MOVE = len(TO_COMMENT)
+PREDICT_OPPONENT_MOVE = config["albert"]["pred_opponent_move"]
 
 predict_orders = {}
 
-
-
 not_assigned_powers = [
-    x for x in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"] if x not in TO_ENGINE
+    x for x in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"] if x not in TO_ENGINE and x not in TO_ADVISE
 ]
 
 power_queues = {
     "TO_ENGINE": Queue(),
     "NOT_ASSIGNED": Queue(),
+    "TO_ADVISE": Queue(),
 }
 
 for power in TO_ENGINE:
     power_queues["TO_ENGINE"].put(power)
 for power in not_assigned_powers:
     power_queues["NOT_ASSIGNED"].put(power)
+for power in TO_ADVISE:
+    power_queues["TO_ADVISE"].put(power)
 
 POWERS_ABBRS = {v: k for k, v in POWER_NAMES.items()}
 DESIGNATED_ALBERT_POWER_ABBRS = list(POWER_NAMES.values())
@@ -120,6 +102,30 @@ with open("scs.json", "r") as f:
 """
     NOTE: as long as DM prefix is >= 512 && < 768 it is valid
 """
+
+class AlbertBot(BaselineBot, ABC):
+    async def gen_orders(self) -> List[str]:
+        return []
+
+    async def do_messaging_round(self, orders: Sequence[str]) -> List[str]:
+        return []
+
+
+class AlbertAdvisor(AlbertBot):
+    """Advisor form of `CiceroBot`."""
+
+    bot_type = BotType.ADVISOR
+
+    if not PRESS:
+        if PREDICT_OPPONENT_MOVE:
+            default_suggestion_type = SuggestionType.MOVE | SuggestionType.OPPONENT_MOVE
+        else:
+            default_suggestion_type = SuggestionType.MOVE | SuggestionType.COMMENTARY
+    else:
+        if PREDICT_OPPONENT_MOVE:
+            default_suggestion_type = SuggestionType.MESSAGE_AND_MOVE | SuggestionType.COMMENTARY | SuggestionType.OPPONENT_MOVE
+        else:
+            default_suggestion_type = SuggestionType.MESSAGE_AND_MOVE | SuggestionType.COMMENTARY
 
 def tokenize(orders):
     """
@@ -535,7 +541,7 @@ game_instance = None
 current_game_phase = None
 orderable_powers = []
 waiting_for_orders = True
-albert_agent: Optional[AlbertBot] = None
+# albert_agent: Optional[AlbertBot] = None
 
 async def submit_aggregated_orders():
     global aggregated_orders, current_game_phase, orderable_powers, waiting_for_orders
@@ -562,18 +568,13 @@ async def submit_aggregated_orders():
                 async with orders_lock:
                     for power, orders_list in aggregated_orders.items():
                         print(f"orders for {power}: {orders_list}")
-                try:
-                    await albert_agent.suggest_opponent_orders(aggregated_orders)
-                except Exception:
-                    logging.exception("Advisor suggestion error")
-                    continue
 
                 current_game_phase = new_phase
                 orderable_powers = []
                 waiting_for_orders = False
 
 
-async def handle_client(client_socket, client_address, power, is_engine):
+async def handle_client(client_socket, client_address, power, is_engine, is_advisor):
     global game_instance, current_game_phase, aggregated_orders, waiting_for_orders, albert_agent
 
     # connect to paquette
@@ -593,6 +594,12 @@ async def handle_client(client_socket, client_address, power, is_engine):
         game: NetworkGame = await channel.join_game(
             game_id=GAME_ID, power_name=power
         )
+    elif is_advisor:
+        channel = await connection.authenticate(*admin_credentials)
+        game: NetworkGame = await channel.join_game(
+            game_id=GAME_ID
+        )
+        advisor = AlbertAdvisor(power, game)
     else:
         channel = await connection.authenticate(*admin_credentials)
         game: NetworkGame = await channel.join_game(
@@ -603,7 +610,6 @@ async def handle_client(client_socket, client_address, power, is_engine):
         game_instance = game
         phase_data = game.get_phase_data()
         current_game_phase = GamePhaseData.to_dict(phase_data)["name"]
-        albert_agent = AlbertAdvisor()
         # Initialize aggregated_orders for all powers
 
 
@@ -779,7 +785,15 @@ async def handle_client(client_socket, client_address, power, is_engine):
 
                         async with orders_lock:
                             aggregated_orders[power] = to_submit
-
+                    # playable_powers= []
+                    # for power in ['AUSTRIA','FRANCE','ENGLAND','GERMANY','ITALY','RUSSIA','TURKEY']:
+                    #     if not game.powers[power].is_eliminated():
+                    #         playable_powers.append(power)
+                    
+                    if is_advisor and advisor:
+                        await asyncio.sleep(10)
+                        await advisor.suggest_orders(orders = to_submit)
+                        await advisor.suggest_opponent_orders(aggregated_orders)
 
                     if is_engine:
                         try:
@@ -815,6 +829,11 @@ async def handle_client(client_socket, client_address, power, is_engine):
                 if game_state["name"] == "COMPLETED":
                     await handle_game_completion(game)
                     sys.exit(0)
+                
+                if is_advisor and advisor and orderable_locations[power]:
+                    advisor.suggestion_type = advisor.default_suggestion_type
+                    advisor.power_name = power
+                    await advisor.declare_suggestion_type()
 
                 if current_phase.endswith("A"):
                     send_SCO = True
@@ -902,17 +921,19 @@ async def run():
             client_socket, client_address = await loop.run_in_executor(
                 None, server_socket.accept
             )
-
-            if not power_queues["TO_ENGINE"].empty():
-                assigned_power = (power_queues["TO_ENGINE"].get(), True)
+            if not power_queues["TO_ADVISE"].empty():
+                assigned_power = (power_queues["TO_ADVISE"].get(), False, True)
+            elif not power_queues["TO_ENGINE"].empty():
+                assigned_power = (power_queues["TO_ENGINE"].get(), True, False)
             elif not power_queues["NOT_ASSIGNED"].empty():
-                assigned_power = (power_queues["NOT_ASSIGNED"].get(), False)
+                assigned_power = (power_queues["NOT_ASSIGNED"].get(), False, False)
             else:
                 raise RuntimeError("No available power to assign to client")
             
             # Handle the client in an async function
+
             create_task_with_exception_handling(
-                handle_socket_client(client_socket, client_address, assigned_power[0], assigned_power[1]),
+                handle_socket_client(client_socket, client_address, assigned_power[0], assigned_power[1], assigned_power[2]),
                 task_name=f"Handle client {client_address}",
             )
     except KeyboardInterrupt:
@@ -921,10 +942,10 @@ async def run():
         server_socket.close()
 
 
-async def handle_socket_client(client_socket, client_address, power, is_engine):
+async def handle_socket_client(client_socket, client_address, power, is_engine, is_advisor):
     try:
         logging.info(f"Handling client {client_address}")
-        await handle_client(client_socket, client_address, power, is_engine)
+        await handle_client(client_socket, client_address, power, is_engine, is_advisor)
     except Exception as e:
         logging.error(f"Error handling client {power} {client_address}: {e}")
         traceback.print_exc()
