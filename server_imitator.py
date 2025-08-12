@@ -128,9 +128,9 @@ class AlbertAdvisor(AlbertBot):
             suggestion_type = SuggestionType.MOVE | SuggestionType.COMMENTARY
     else:
         if PREDICT_OPPONENT_MOVE:
-            suggestion_type = SuggestionType.MESSAGE_AND_MOVE | SuggestionType.COMMENTARY | SuggestionType.OPPONENT_MOVE
+            suggestion_type = SuggestionType.MESSAGE | SuggestionType.MOVE | SuggestionType.COMMENTARY | SuggestionType.OPPONENT_MOVE
         else:
-            suggestion_type = SuggestionType.MESSAGE_AND_MOVE | SuggestionType.COMMENTARY
+            suggestion_type = SuggestionType.MESSAGE | SuggestionType.MOVE | SuggestionType.COMMENTARY
 
 class MovePredictor(AlbertBot):
     bot_type = BotType.ADVISOR
